@@ -5,12 +5,17 @@
 #include <boost/thread.hpp>
 
 #include "logger.hpp"
+#include "blacklist.hpp"
 
-extern boost::asio::io_context ctx;
-extern boost::asio::ip::tcp::resolver resolver;
+struct context {
+    boost::asio::io_context ctx;
+    boost::asio::ip::tcp::resolver resolver;
+    boost::mutex resolver_mutex;
+    Logger logger;
+    bool telemetry;
+    Blacklist blacklist;
+};
 
-extern boost::mutex resolver_mutex;
-
-extern Logger logger;
+extern struct context ctx;
 
 #endif  // HTTPS_PROXY_CONTEXT_HPP_

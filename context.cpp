@@ -5,9 +5,9 @@
 
 #include "logger.hpp"
 
-boost::asio::io_context ctx;
-boost::asio::ip::tcp::resolver resolver(ctx);
-
-boost::mutex resolver_mutex;
-
-Logger logger = Logger("./log");
+context ctx = {
+    .resolver = boost::asio::ip::tcp::resolver(ctx.ctx),
+    .logger = Logger("./log"),
+    .telemetry = false,
+    .blacklist = Blacklist()
+};

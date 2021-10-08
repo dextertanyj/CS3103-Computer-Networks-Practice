@@ -60,6 +60,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
     char* server_buffer = reinterpret_cast<char*>(malloc(sizeof(char) * BUFFER_SIZE));
 
     Connection(boost::asio::ip::tcp::socket*, std::string);
+    bool has_telemetry();
     void set_options(std::string&);
     void handle_read(boost::asio::ip::tcp::socket*, boost::asio::ip::tcp::socket*,
       char*, size_t, const boost::system::error_code);

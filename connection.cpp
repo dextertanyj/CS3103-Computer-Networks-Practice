@@ -46,15 +46,19 @@ Connection::Connection(boost::asio::ip::tcp::socket* client_socket, std::string 
   raw_options.pop_back();
   raw_options.pop_back();
   set_options(raw_options);
-  logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
+  ctx.logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
 }
 
 Connection::~Connection() {
-  int duration = std::chrono::duration_cast<std::chrono::milliseconds>(this->end_time - this->start_time).count();
-  std::string telemetry = "Hostname: " + this->hostname + ", Size: " +
+  if (this->has_telemetry()) {
+    int duration = std::chrono::duration_cast<std::chrono::milliseconds>(this->end_time - this->start_time).count();
+    std::string telemetry = "Hostname: " + this->hostname + ", Size: " +
     std::to_string(this->total_size/8) + " bytes, Time: " + std::to_string(duration/(1000.0)) + " sec";
-  logger.write_info(telemetry);
-  std::cout << telemetry << std::endl;
+    ctx.logger.write_info(telemetry);
+    if (ctx.telemetry) {
+      printf("%s\n", telemetry.c_str());
+    }
+  }
   free(this->client_buffer);
   free(this->server_buffer);
 }
@@ -66,14 +70,14 @@ std::shared_ptr<Connection> Connection::create(boost::asio::ip::tcp::socket* cli
 void Connection::handle_connection(std::string initial_data) {
   this->start();
   boost::asio::ip::tcp::socket *client_socket = this->get_client_socket();
-  boost::asio::ip::tcp::socket *destination_socket = new boost::asio::ip::tcp::socket(ctx);
+  boost::asio::ip::tcp::socket *destination_socket = new boost::asio::ip::tcp::socket(ctx.ctx);
   this->destination_socket = destination_socket;
   boost::asio::ip::tcp::endpoint destination;
   try {
     destination = Connection::resolve(this->get_hostname().append("."), std::to_string(this->get_port()));
   } catch (NameResolutionError &e) {
     std::string message = e.what();
-    logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message);
+    ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message);
     client_socket->close();
     destination_socket->close();
     return;
@@ -83,7 +87,7 @@ void Connection::handle_connection(std::string initial_data) {
     destination_socket->connect(destination);
   } catch (boost::system::system_error &e) {
     std::string message = e.what();
-    logger.write_warn("Failed to connect: " + this->get_hostname() + "|" + message);
+    ctx.logger.write_warn("Failed to connect: " + this->get_hostname() + "|" + message);
     client_socket->close();
     destination_socket->close();
     return;
@@ -139,6 +143,10 @@ std::string Connection::get_option(std::string key) {
     throw "Key Not Found";
   }
   return this->options.find(key_case_insensitive)->second;
+}
+
+bool Connection::has_telemetry() {
+  return this->start_time != std::chrono::system_clock::time_point() && this->end_time != std::chrono::system_clock::time_point();
 }
 
 void Connection::set_options(std::string& options) {
@@ -203,10 +211,10 @@ bool Connection::validate_header(std::string& header) {
 }
 
 boost::asio::ip::tcp::endpoint Connection::resolve(std::string hostname, std::string port) {
-  boost::lock_guard<boost::mutex> guard(resolver_mutex);
+  boost::lock_guard<boost::mutex> guard(ctx.resolver_mutex);
   try {
     boost::asio::ip::tcp::resolver::query query(hostname, port);
-    boost::asio::ip::tcp::resolver::iterator results = resolver.resolve(query);
+    boost::asio::ip::tcp::resolver::iterator results = ctx.resolver.resolve(query);
     return results->endpoint();
   } catch (boost::system::system_error &e) {
     throw NameResolutionError(e.what());
