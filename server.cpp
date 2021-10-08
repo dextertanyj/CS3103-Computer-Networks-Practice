@@ -10,7 +10,7 @@
 #include "context.hpp"
 
 #define ALL_INTERFACES {0, 0, 0, 0}
-#define THREAD_COUNT 7
+#define THREAD_COUNT 8
 #define END_OF_MESSAGE "\r\n\r\n"
 
 Server::Server(int port) {
@@ -68,6 +68,7 @@ void Server::listen() {
       delete stream_buffer;
       try {
         auto connection = Connection::create(client_socket, message);
+        logger.write_debug(message);
         connection->handle_connection(remaining);
       } catch (BadRequestException &e) {
         logger.write_warn(e.what());
