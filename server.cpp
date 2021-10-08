@@ -69,14 +69,12 @@ void Server::listen() {
       try {
         auto connection = Connection::create(client_socket, message);
         ctx.logger.write_debug(message);
-        if (ctx.blacklist.is_blocked(connection->get_hostname())) {
-          ctx.logger.write_info("Blocked: " + connection->get_hostname());
-          continue;
-        }
         connection->handle_connection(remaining);
       } catch (BadRequestException &e) {
         ctx.logger.write_warn(e.what());
       } catch (UnsupportedHTTPVersionException &e) {
+        ctx.logger.write_warn(e.what());
+      } catch (BlockedException &e) {
         ctx.logger.write_warn(e.what());
       }
     } catch (boost::system::system_error &e) {

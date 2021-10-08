@@ -10,7 +10,6 @@
 #include <boost/thread.hpp>
 
 #define BUFFER_SIZE 8192
-#define CONNECTION_ESTABLISHED_LENGTH 41
 #define HTTPS_PORT 443
 #define HTTP_VERSION_1 "1.1"
 #define HTTP_VERSION_0 "1.0"
@@ -19,11 +18,19 @@ struct BadRequestException : public std::runtime_error {
   using runtime_error::runtime_error;
 };
 
+struct UnsupportedHTTPMethod : public std::runtime_error {
+  using runtime_error::runtime_error;
+};
+
 struct UnsupportedHTTPVersionException : public std::runtime_error {
   using runtime_error::runtime_error;
 };
 
 struct NameResolutionError : public std::runtime_error {
+  using runtime_error::runtime_error;
+};
+
+struct BlockedException : public std::runtime_error {
   using runtime_error::runtime_error;
 };
 
@@ -67,6 +74,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
     void start();
     void record_payload(int);
     void end();
+    void write_error_to_client(const char *const, int, std::string&);
 
     static bool validate_header(std::string&);
     static boost::asio::ip::tcp::endpoint resolve(std::string, std::string);

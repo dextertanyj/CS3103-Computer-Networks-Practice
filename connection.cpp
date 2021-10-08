@@ -9,44 +9,63 @@
 
 #include "context.hpp"
 
-static boost::regex STANDARD_REQUEST = boost::regex("CONNECT (\\S| )+ HTTP\\/(.)+\\r\\n(\\S+:(\\S| )+\\r\\n)*\\r\\n");
-static boost::regex HTTP_VERSION = boost::regex("HTTP/(\\S+)\\r\\n");
-static boost::regex DESTINATION = boost::regex("CONNECT ([^:]+)(:\\S+)? HTTP/.+\\r\\n");
+static boost::regex STANDARD_REQUEST = boost::regex("^[A-Z]+ (\\S)+ HTTP\\/\\S+\\r\\n(\\S+:(\\S| )+\\r\\n)*\\r\\n$");
+static boost::regex REQUEST_LINE = boost::regex("^CONNECT (?<hostname>[^:]+)(?<port>:\\S+)? HTTP/(?<version>\\S+)\\r\\n");
+
+#define CONNECTION_ESTABLISHED_LENGTH 41
+#define BAD_REQUEST_LENGTH 29
+#define FORBIDDEN_LENGTH 27
+#define METHOD_NOT_ALLOWED_LENGTH 36
+#define VERSION_NOT_SUPPORTED_LENGTH 44
+
+static const char *const HTTP_BAD_REQUEST = "HTTP/1.%d 400 Bad Request\r\n\r\n";
+static const char *const HTTP_FORBIDDEN = "HTTP/1.%d 403 Forbidden\r\n\r\n";
+static const char *const HTTP_METHOD_NOT_ALLOWED = "HTTP/1.%d 405 Method Not Allowed\r\n\r\n";
+static const char *const HTTP_VERSION_NOT_SUPPORTED = "HTTP/1.1 505 HTTP Version Not Supported\r\n\r\n";
+static const char *const HTTP_CONNECTION_ESTABLISHED = "HTTP/1.%d 200 Connection established \r\n\r\n";
 
 Connection::Connection(boost::asio::ip::tcp::socket* client_socket, std::string header) {
   this->client_socket = client_socket;
   this->total_size = 0;
 
   if (!validate_header(header)) {
-    throw BadRequestException("Bad Request");
+    this->write_error_to_client(HTTP_BAD_REQUEST, BAD_REQUEST_LENGTH, header);
+    throw BadRequestException("Bad request");
   }
-  boost::smatch version_match;
-  if (!boost::regex_search(header, version_match, HTTP_VERSION)) {
-    throw BadRequestException("HTTP Version Not Found");
+  if (!(header.find("CONNECT") == 0)) {
+    this->write_error_to_client(HTTP_METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED_LENGTH, header);
+    throw UnsupportedHTTPMethod("HTTP method not supported");
   }
-  if (version_match.str(1) == HTTP_VERSION_1) {
+  boost::smatch request_line_match;
+  if (!boost::regex_search(header, request_line_match, REQUEST_LINE)) {
+    this->write_error_to_client(HTTP_BAD_REQUEST, BAD_REQUEST_LENGTH, header);
+    throw BadRequestException("Request line format error");
+  }
+  this->hostname = request_line_match["hostname"].str();
+  if (request_line_match["version"].str() == HTTP_VERSION_1) {
     this->version = 1;
-  } else if (version_match.str(1) == HTTP_VERSION_0) {
+  } else if (request_line_match["version"].str() == HTTP_VERSION_0) {
     this->version = 0;
   } else {
-    throw UnsupportedHTTPVersionException("HTTP Version Unsupported");
+    this->write_error_to_client(HTTP_VERSION_NOT_SUPPORTED, VERSION_NOT_SUPPORTED_LENGTH, header);
+    throw UnsupportedHTTPVersionException("HTTP version unsupported");
   }
-  boost::smatch target_match;
-  if (!boost::regex_search(header, target_match, DESTINATION)) {
-    throw BadRequestException("Target Host Not Found");
-  }
-  this->hostname = target_match.str(1);
-  if (target_match.size() > 1) {
-    this->port = atoi(target_match.str(2).substr(1).c_str());
+  if (request_line_match["port"].str() != "") {
+    this->port = atoi(request_line_match["port"].str().substr(1).c_str());
   } else {
     this->port = HTTPS_PORT;
   }
+
+  if (ctx.blacklist.is_blocked(this->hostname)) {
+    this->write_error_to_client(HTTP_FORBIDDEN, FORBIDDEN_LENGTH, header);
+    throw BlockedException("Website blocked: " + this->hostname);
+  }
+
   int options_token = header.find("\r\n");
   std::string raw_options = header.substr(options_token + 2);
   raw_options.pop_back();
   raw_options.pop_back();
   set_options(raw_options);
-  ctx.logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
 }
 
 Connection::~Connection() {
@@ -82,6 +101,7 @@ void Connection::handle_connection(std::string initial_data) {
     destination_socket->close();
     return;
   }
+  ctx.logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
   try {
     destination_socket->open(destination.protocol());
     destination_socket->connect(destination);
@@ -92,10 +112,10 @@ void Connection::handle_connection(std::string initial_data) {
     destination_socket->close();
     return;
   }
-  char established[CONNECTION_ESTABLISHED_LENGTH] = {0};
-  snprintf(established, CONNECTION_ESTABLISHED_LENGTH,
-    "HTTP/1.%d 200 Connection established \r\n\r\n", this->get_version());
-  boost::asio::write(*client_socket, boost::asio::buffer(established, 41));
+  char message[CONNECTION_ESTABLISHED_LENGTH] = {0};
+  snprintf(message, CONNECTION_ESTABLISHED_LENGTH,
+    HTTP_CONNECTION_ESTABLISHED, this->get_version());
+  boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
 
   client_socket->async_receive(boost::asio::buffer(this->client_buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
@@ -204,6 +224,18 @@ void Connection::end() {
   if (this->end_time == std::chrono::system_clock::time_point()) {
     this->end_time = std::chrono::system_clock::now();
   }
+}
+
+void Connection::write_error_to_client(const char *const message, int length, std::string &header) {
+  char buffer[length] = {0};
+  int version = 0;
+  if (size_t token = header.find("HTTP/1.") ) {
+    if (header.size() > token + 8) {
+      version = atoi(header.substr(token + 7, 1).c_str());
+    }
+  }
+  snprintf(buffer, length, message, version);
+  boost::asio::write(*(this->client_socket), boost::asio::buffer(buffer, length));
 }
 
 bool Connection::validate_header(std::string& header) {

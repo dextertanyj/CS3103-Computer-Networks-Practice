@@ -35,7 +35,7 @@ int main(int argc, char * argv[]) {
     blacklist_file.close();
     ctx.blacklist.add_entries(entries);
   } else {
-    ctx.logger.write_info("Blacklist file not found:" + std::string(argv[3]));
+    ctx.logger.write_info("Blacklist file not found: " + std::string(argv[3]));
   }
   Server server = Server(atoi(argv[1]));
   server.listen();
