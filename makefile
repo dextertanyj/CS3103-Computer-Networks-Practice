@@ -1,5 +1,5 @@
 CC=g++
-CFLAGS = -Wall
+CFLAGS=-Wall -O3
 LIBS=-lpthread -lboost_regex -lboost_thread
 TARGET=proxy
 
@@ -7,13 +7,13 @@ proxy: main.o server.o connection.o context.o logger.o
 	$(CC) $(CFLAGS) -o proxy main.o server.o connection.o context.o logger.o $(LIBS)
 
 main.o: main.cpp server.hpp context.hpp
-	$(CC) $(CFLAGS) -c main.cpp $(LIBS)
+	$(CC) $(CFLAGS) -c main.cpp
 
 server.o: server.cpp server.hpp connection.hpp context.hpp
-	$(CC) $(CFLAGS) -c server.cpp $(LIBS)
+	$(CC) $(CFLAGS) -c server.cpp
 
 connection.o: connection.cpp connection.hpp context.hpp
-	$(CC) $(CFLAGS) -c connection.cpp $(LIBS)
+	$(CC) $(CFLAGS) -c connection.cpp
 
 context.o: context.cpp context.hpp logger.hpp
 	$(CC) $(CFLAGS) -c context.cpp
