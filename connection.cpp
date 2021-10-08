@@ -46,7 +46,7 @@ Connection::Connection(boost::asio::ip::tcp::socket* client_socket, std::string 
   raw_options.pop_back();
   raw_options.pop_back();
   set_options(raw_options);
-  std::cout << "Connecting to: " << hostname << ":" << port << std::endl;
+  logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
 }
 
 Connection::~Connection() {
@@ -161,18 +161,15 @@ void Connection::handle_read(
   const boost::system::error_code error
 ) {
   boost::lock_guard<boost::mutex> lock(this->lock);
-  // this->lock.lock();
   if ((error == boost::asio::error::eof) ||
   (error == boost::asio::error::connection_reset) ||
   (error == boost::asio::error::connection_aborted)) {
     this->end();
     read->close();
     write->close();
-    this->lock.unlock();
     return;
   }
   if (!write->is_open()) {
-    this->lock.unlock();
     return;
   }
   boost::asio::write(*write, boost::asio::buffer(buffer, bytes_transferred));
@@ -182,7 +179,6 @@ void Connection::handle_read(
       shared_from_this(),
       read, write, buffer,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
-  // this->lock.unlock();
 }
 
 void Connection::start() {
