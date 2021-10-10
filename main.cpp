@@ -25,7 +25,7 @@ int main(int argc, char * argv[]) {
   if (access(argv[3], F_OK) == 0) {
     std::ifstream blacklist_file;
     blacklist_file.open(argv[3], std::ios::in);
-    std::vector<std::string> *entries = new std::vector<std::string>();
+    std::unique_ptr<std::vector<std::string>> entries = std::make_unique<std::vector<std::string>>();
     std::string buffer;
     while (std::getline(blacklist_file, buffer)) {
       if (buffer.size() > 0) {
@@ -33,12 +33,13 @@ int main(int argc, char * argv[]) {
       }
     }
     blacklist_file.close();
-    ctx.blacklist.add_entries(entries);
+    ctx.blacklist.add_entries(std::move(entries));
   } else {
     ctx.logger.write_info("Blacklist file not found: " + std::string(argv[3]));
   }
-  Server server = Server(atoi(argv[1]));
-  server.listen();
+  std::shared_ptr<Server> server = Server::create(atoi(argv[1]));
+  server->listen();
+  ctx.logger.write_info("Gracefully stopped proxy.");
   ctx.logger.close();
   return 0;
 }

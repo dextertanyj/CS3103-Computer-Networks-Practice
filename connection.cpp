@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <iostream>
+#include <memory>
 #include <unordered_map>
 
 #include <boost/regex.hpp>
@@ -24,7 +25,7 @@ static const char *const HTTP_METHOD_NOT_ALLOWED = "HTTP/1.%d 405 Method Not All
 static const char *const HTTP_VERSION_NOT_SUPPORTED = "HTTP/1.1 505 HTTP Version Not Supported\r\n\r\n";
 static const char *const HTTP_CONNECTION_ESTABLISHED = "HTTP/1.%d 200 Connection established \r\n\r\n";
 
-Connection::Connection(boost::asio::ip::tcp::socket* client_socket, std::string header) {
+Connection::Connection(std::shared_ptr<boost::asio::ip::tcp::socket> client_socket, std::string header) {
   this->client_socket = client_socket;
   this->total_size = 0;
 
@@ -82,14 +83,14 @@ Connection::~Connection() {
   free(this->server_buffer);
 }
 
-std::shared_ptr<Connection> Connection::create(boost::asio::ip::tcp::socket* client_socket, std::string header) {
+std::shared_ptr<Connection> Connection::create(std::shared_ptr<boost::asio::ip::tcp::socket> client_socket, std::string header) {
   return std::shared_ptr<Connection>(new Connection(client_socket, header));
 }
 
 void Connection::handle_connection(std::string initial_data) {
   this->start();
-  boost::asio::ip::tcp::socket *client_socket = this->get_client_socket();
-  boost::asio::ip::tcp::socket *destination_socket = new boost::asio::ip::tcp::socket(ctx.ctx);
+  std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = this->get_client_socket();
+  std::shared_ptr<boost::asio::ip::tcp::socket> destination_socket = std::make_shared<boost::asio::ip::tcp::socket>(ctx.ctx);
   this->destination_socket = destination_socket;
   boost::asio::ip::tcp::endpoint destination;
   try {
@@ -136,11 +137,11 @@ std::shared_ptr<Connection> Connection::shared_ptr() {
   return shared_from_this();
 }
 
-boost::asio::ip::tcp::socket* Connection::get_client_socket() {
+std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_client_socket() {
   return this->client_socket;
 }
 
-boost::asio::ip::tcp::socket* Connection::get_server_socket() {
+std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_server_socket() {
   return this->destination_socket;
 }
 
@@ -182,8 +183,8 @@ void Connection::set_options(std::string& options) {
 }
 
 void Connection::handle_read(
-  boost::asio::ip::tcp::socket *read,
-  boost::asio::ip::tcp::socket *write,
+  std::shared_ptr<boost::asio::ip::tcp::socket> read,
+  std::shared_ptr<boost::asio::ip::tcp::socket> write,
   char* buffer,
   size_t bytes_transferred,
   const boost::system::error_code error

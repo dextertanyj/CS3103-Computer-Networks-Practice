@@ -37,12 +37,12 @@ struct BlockedException : public std::runtime_error {
 class Connection : public std::enable_shared_from_this<Connection> {
   public:
     ~Connection();
-    static std::shared_ptr<Connection> create(boost::asio::ip::tcp::socket*, std::string);
+    static std::shared_ptr<Connection> create(std::shared_ptr<boost::asio::ip::tcp::socket>, std::string);
     void handle_connection(std::string);
 
     std::shared_ptr<Connection> shared_ptr();
-    boost::asio::ip::tcp::socket* get_client_socket();
-    boost::asio::ip::tcp::socket* get_server_socket();
+    std::shared_ptr<boost::asio::ip::tcp::socket> get_client_socket();
+    std::shared_ptr<boost::asio::ip::tcp::socket> get_server_socket();
     std::string get_hostname();
     int get_port();
     int get_version();
@@ -50,8 +50,8 @@ class Connection : public std::enable_shared_from_this<Connection> {
 
   private:
     // Connection information
-    boost::asio::ip::tcp::socket* client_socket;
-    boost::asio::ip::tcp::socket* destination_socket;
+    std::shared_ptr<boost::asio::ip::tcp::socket> client_socket;
+    std::shared_ptr<boost::asio::ip::tcp::socket> destination_socket;
     std::string hostname;
     int port;
     int version;
@@ -66,10 +66,10 @@ class Connection : public std::enable_shared_from_this<Connection> {
     char* client_buffer = reinterpret_cast<char*>(malloc(sizeof(char) * BUFFER_SIZE));
     char* server_buffer = reinterpret_cast<char*>(malloc(sizeof(char) * BUFFER_SIZE));
 
-    Connection(boost::asio::ip::tcp::socket*, std::string);
+    Connection(std::shared_ptr<boost::asio::ip::tcp::socket>, std::string);
     bool has_telemetry();
     void set_options(std::string&);
-    void handle_read(boost::asio::ip::tcp::socket*, boost::asio::ip::tcp::socket*,
+    void handle_read(std::shared_ptr<boost::asio::ip::tcp::socket>, std::shared_ptr<boost::asio::ip::tcp::socket>,
       char*, size_t, const boost::system::error_code);
     void start();
     void record_payload(int);

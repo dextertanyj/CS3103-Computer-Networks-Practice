@@ -1,5 +1,6 @@
 #include "server.hpp"
 
+#include <csignal>
 #include <string>
 
 #include <boost/asio.hpp>
@@ -13,12 +14,16 @@
 #define THREAD_COUNT 8
 #define END_OF_MESSAGE "\r\n\r\n"
 
-Server::Server(int port) {
-  this->thread_group = new boost::thread_group();
+void interrupt_handler(int) {
+  ctx.logger.write_info("Shutting down.");
+  ctx.ctx.stop();
+}
+
+Server::Server(int port) : thread_group(std::make_unique<boost::thread_group>()) {
   uint16_t listen_port = boost::lexical_cast<uint16_t>(port);
   boost::asio::ip::address_v4 local_address = boost::asio::ip::address_v4(ALL_INTERFACES);
   boost::asio::ip::tcp::endpoint listen_endpoint = boost::asio::ip::tcp::endpoint(local_address, listen_port);
-  this->listen_socket = new boost::asio::ip::tcp::acceptor(ctx.ctx, listen_endpoint.protocol());
+  this->listen_socket = std::make_shared<boost::asio::ip::tcp::acceptor>(ctx.ctx, listen_endpoint.protocol());
   try {
     this->listen_socket->bind(listen_endpoint);
   } catch (boost::system::system_error &e) {
@@ -30,13 +35,14 @@ Server::Server(int port) {
 
 Server::~Server() {
   this->listen_socket->close();
-  ctx.ctx.stop();
-  this->thread_group->join_all();
-  delete this->thread_group;
-  ctx.logger.write_info("Closing proxy.");
+}
+
+std::shared_ptr<Server> Server::create(int port) {
+  return std::shared_ptr<Server>(new Server(port));
 }
 
 void Server::listen() {
+  ctx.ctx.reset();
   try {
     this->listen_socket->listen();
   } catch (boost::system::system_error &e) {
@@ -44,42 +50,43 @@ void Server::listen() {
     exit(2);
   }
   ctx.logger.write_debug("Listening on port " + std::to_string(this->listen_socket->local_endpoint().port()));
-  boost::asio::io_service::work work(ctx.ctx);
+  boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(ctx.ctx.get_executor());
   for (int i = 0; i < THREAD_COUNT; i++) {
     this->thread_group->create_thread(boost::bind(&boost::asio::io_context::run, &(ctx.ctx)));
     ctx.logger.write_debug("Starting thread: " + std::to_string(i));
   }
-  while (true) {
+  this->listen_socket->async_accept(ctx.ctx, std::bind(&Server::handle_accept, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
+  std::signal(SIGINT, interrupt_handler);
+  this->thread_group->join_all();
+}
+
+void Server::handle_accept(const boost::system::error_code &error, boost::asio::ip::tcp::socket peer_socket) {
+  if (!error) {
+    std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = std::make_shared<boost::asio::ip::tcp::socket>(std::move(peer_socket));
+    std::string client_address = client_socket->remote_endpoint().address().to_string();
+    uint16_t client_port = client_socket->remote_endpoint().port();
+    ctx.logger.write_info("Accepted connection from " + client_address + ":" + std::to_string(client_port) + ".");
+    boost::asio::streambuf *stream_buffer = new boost::asio::streambuf();
+    int bytes_transferred = boost::asio::read_until(*client_socket, *stream_buffer, END_OF_MESSAGE);
+    std::string message = std::string(
+      boost::asio::buffers_begin(stream_buffer->data()),
+      boost::asio::buffers_begin(stream_buffer->data()) + bytes_transferred);
+    stream_buffer->consume(bytes_transferred);
+    std::string remaining = std::string(
+      boost::asio::buffers_begin(stream_buffer->data()),
+      boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
+    delete stream_buffer;
     try {
-      boost::asio::ip::tcp::socket *client_socket = new boost::asio::ip::tcp::socket(ctx.ctx);
-      this->listen_socket->accept(*client_socket);
-      std::string client_address = client_socket->remote_endpoint().address().to_string();
-      uint16_t client_port = client_socket->remote_endpoint().port();
-      ctx.logger.write_info("Accepted connection from " + client_address + ":" + std::to_string(client_port) + ".");
-      boost::asio::streambuf *stream_buffer = new boost::asio::streambuf();
-      int bytes_transferred = boost::asio::read_until(*client_socket, *stream_buffer, END_OF_MESSAGE);
-      std::string message = std::string(
-        boost::asio::buffers_begin(stream_buffer->data()),
-        boost::asio::buffers_begin(stream_buffer->data()) + bytes_transferred);
-      stream_buffer->consume(bytes_transferred);
-      std::string remaining = std::string(
-        boost::asio::buffers_begin(stream_buffer->data()),
-        boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
-      delete stream_buffer;
-      try {
-        auto connection = Connection::create(client_socket, message);
-        ctx.logger.write_debug(message);
-        connection->handle_connection(remaining);
-      } catch (BadRequestException &e) {
-        ctx.logger.write_warn(e.what());
-      } catch (UnsupportedHTTPVersionException &e) {
-        ctx.logger.write_warn(e.what());
-      } catch (BlockedException &e) {
-        ctx.logger.write_warn(e.what());
-      }
-    } catch (boost::system::system_error &e) {
-      ctx.logger.write_error(e.what());
-      continue;
+      auto connection = Connection::create(client_socket, message);
+      ctx.logger.write_debug(message);
+      connection->handle_connection(remaining);
+    } catch (BadRequestException &e) {
+      ctx.logger.write_warn(e.what());
+    } catch (UnsupportedHTTPVersionException &e) {
+      ctx.logger.write_warn(e.what());
+    } catch (BlockedException &e) {
+      ctx.logger.write_warn(e.what());
     }
   }
+  this->listen_socket->async_accept(ctx.ctx, std::bind(&Server::handle_accept, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
 }
