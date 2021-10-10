@@ -116,7 +116,12 @@ void Connection::handle_connection(std::string initial_data) {
   char message[CONNECTION_ESTABLISHED_LENGTH] = {0};
   snprintf(message, CONNECTION_ESTABLISHED_LENGTH,
     HTTP_CONNECTION_ESTABLISHED, this->get_version());
-  boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
+  try {
+    boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
+  } catch (boost::system::system_error &e) {
+    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+    return;
+  }
 
   client_socket->async_receive(boost::asio::buffer(this->client_buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
@@ -201,7 +206,13 @@ void Connection::handle_read(
   if (!write->is_open()) {
     return;
   }
-  boost::asio::write(*write, boost::asio::buffer(buffer, bytes_transferred));
+  try {
+    boost::asio::write(*write, boost::asio::buffer(buffer, bytes_transferred));
+  } catch (boost::system::system_error &e) {
+    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+    return;
+  }
+
   this->record_payload(bytes_transferred);
   read->async_read_some(boost::asio::buffer(buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
@@ -236,7 +247,11 @@ void Connection::write_error_to_client(const char *const message, int length, st
     }
   }
   snprintf(buffer, length, message, version);
-  boost::asio::write(*(this->client_socket), boost::asio::buffer(buffer, length));
+  try {
+    boost::asio::write(*(this->client_socket), boost::asio::buffer(buffer, length));
+  } catch (boost::system::system_error &e) {
+    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+  }
 }
 
 bool Connection::validate_header(std::string& header) {
