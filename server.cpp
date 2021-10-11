@@ -67,7 +67,13 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
     uint16_t client_port = client_socket->remote_endpoint().port();
     ctx.logger.write_info("Accepted connection from " + client_address + ":" + std::to_string(client_port) + ".");
     boost::asio::streambuf *stream_buffer = new boost::asio::streambuf();
-    int bytes_transferred = boost::asio::read_until(*client_socket, *stream_buffer, END_OF_MESSAGE);
+    int bytes_transferred = 0;
+    try {
+      bytes_transferred = boost::asio::read_until(*client_socket, *stream_buffer, END_OF_MESSAGE);
+    } catch (boost::system::system_error &e) {
+      ctx.logger.write_warn(e.what());
+      return;
+    }
     std::string message = std::string(
       boost::asio::buffers_begin(stream_buffer->data()),
       boost::asio::buffers_begin(stream_buffer->data()) + bytes_transferred);
@@ -77,7 +83,7 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
       boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
     delete stream_buffer;
     try {
-      auto connection = Connection::create(client_socket, message);
+      std::shared_ptr<Connection> connection = Connection::create(client_socket, message);
       ctx.logger.write_debug(message);
       connection->handle_connection(remaining);
     } catch (BadRequestException &e) {
@@ -87,6 +93,8 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
     } catch (BlockedException &e) {
       ctx.logger.write_warn(e.what());
     }
+  } else {
+    ctx.logger.write_warn(error.message());
   }
   this->listen_socket->async_accept(ctx.ctx, std::bind(&Server::handle_accept, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
 }

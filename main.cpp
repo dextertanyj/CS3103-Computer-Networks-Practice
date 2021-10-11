@@ -7,22 +7,39 @@
 #include "server.hpp"
 
 int main(int argc, char * argv[]) {
-  if (argc != 4) {
-    std::cout << "Usage: ./proxy <port> <enable_telemetry> <path_to_blacklist>";
+  if (argc <= 2 || argc > 5) {
+    std::cout << "Usage: ./proxy PORT [TELEMETRY] [BLACKLIST] [LOGGING]";
     return 255;
   }
-  switch (atoi(argv[2])) {
-    case 0:
-      ctx.telemetry = false;
-      break;
-    case 1:
-      ctx.telemetry = true;
-      break;
-    default:
-      std::cout << "Invalid arguments";
-      return 1;
+  if (argc >= 3) {
+    switch (atoi(argv[2])) {
+      case 0:
+        ctx.telemetry = false;
+        break;
+      case 1:
+        ctx.telemetry = true;
+        break;
+      default:
+        std::cout << "Invalid options\n" << "Telemetry = 0 (Disabled) | 1 (Enabled)" << std::endl;
+        return 1;
+    }
   }
-  if (access(argv[3], F_OK) == 0) {
+  if (argc == 5) {
+    std::string level = std::string(argv[4]);
+    if (level == "debug") {
+      ctx.logger.set_logging_level(DEBUG);
+    } else if (level == "info") {
+      ctx.logger.set_logging_level(INFO);
+    } else if (level == "warn") {
+      ctx.logger.set_logging_level(WARN);
+    } else if (level == "error") {
+      ctx.logger.set_logging_level(ERROR);
+    } else {
+      std::cout << "Invalid options\n" << "Logging = debug | info | warn | error" << std::endl;
+      return 1;
+    }
+  }
+  if (argc >= 4 && access(argv[3], F_OK) == 0) {
     std::ifstream blacklist_file;
     blacklist_file.open(argv[3], std::ios::in);
     std::unique_ptr<std::vector<std::string>> entries = std::make_unique<std::vector<std::string>>();

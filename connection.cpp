@@ -192,7 +192,7 @@ void Connection::handle_read(
   std::shared_ptr<boost::asio::ip::tcp::socket> write,
   char* buffer,
   size_t bytes_transferred,
-  const boost::system::error_code error
+  const boost::system::error_code &error
 ) {
   boost::lock_guard<boost::mutex> lock(this->lock);
   if ((error == boost::asio::error::eof) ||

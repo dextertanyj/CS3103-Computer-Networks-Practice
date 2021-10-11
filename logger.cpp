@@ -11,7 +11,16 @@ static boost::regex LF = boost::regex("\n");
 static std::string LF_REPLACEMENT = R"(\\n)";
 
 Logger::Logger(std::string path) {
-  this->logFile.open(path, std::ios::app);
+  this->log_file.open(path, std::ios::app);
+  this->log_level = DISABLED;
+}
+
+void Logger::close() {
+  this->log_file.close();
+}
+
+void Logger::set_logging_level(Level lvl) {
+  this->log_level = lvl;
 }
 
 void Logger::write(Level lvl, std::string message) {
@@ -20,27 +29,31 @@ void Logger::write(Level lvl, std::string message) {
   std::string timestamp = Logger::current_timestamp();
   std::string lvl_string = Logger::level_to_string(lvl);
   std::string formatted_message = timestamp + "|" + lvl_string + "|" + message2;
-  this->logFile << formatted_message << std::endl;
+  this->log_file << formatted_message << std::endl;
 }
 
 void Logger::write_debug(std::string message) {
-  this->write(DEBUG, message);
+  if (this->log_level == 0) {
+    this->write(DEBUG, message);
+  }
 }
 
 void Logger::write_info(std::string message) {
-  this->write(INFO, message);
+  if (this->log_level <= 1) {
+    this->write(INFO, message);
+  }
 }
 
 void Logger::write_warn(std::string message) {
-  this->write(WARN, message);
+  if (this->log_level <= 2) {
+    this->write(WARN, message);
+  }
 }
 
 void Logger::write_error(std::string message) {
-  this->write(ERROR, message);
-}
-
-void Logger::close() {
-  this->logFile.close();
+  if (this->log_level <= 3) {
+    this->write(ERROR, message);
+  }
 }
 
 std::string Logger::current_timestamp() {
