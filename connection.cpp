@@ -97,7 +97,7 @@ void Connection::handle_connection(std::string initial_data) {
     destination = Connection::resolve(this->get_hostname().append("."), std::to_string(this->get_port()));
   } catch (NameResolutionError &e) {
     std::string message = e.what();
-    ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message);
+    ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
     client_socket->close();
     destination_socket->close();
     return;
@@ -108,7 +108,7 @@ void Connection::handle_connection(std::string initial_data) {
     destination_socket->connect(destination);
   } catch (boost::system::system_error &e) {
     std::string message = e.what();
-    ctx.logger.write_warn("Failed to connect: " + this->get_hostname() + "|" + message);
+    ctx.logger.write_error("Failed to connect: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
     client_socket->close();
     destination_socket->close();
     return;
@@ -119,7 +119,7 @@ void Connection::handle_connection(std::string initial_data) {
   try {
     boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
   } catch (boost::system::system_error &e) {
-    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+    ctx.logger.write_error("Write failed: " + std::string(e.what()), "Connection::handle_connection");
     return;
   }
 
@@ -166,7 +166,7 @@ std::string Connection::get_option(std::string key) {
   std::string key_case_insensitive = std::string();
   std::transform(key.begin(), key.end(), key_case_insensitive.begin(), ::tolower);
   if (this->options.find(key_case_insensitive) == options.end()) {
-    throw "Key Not Found";
+    return "";
   }
   return this->options.find(key_case_insensitive)->second;
 }
@@ -198,6 +198,7 @@ void Connection::handle_read(
   if ((error == boost::asio::error::eof) ||
   (error == boost::asio::error::connection_reset) ||
   (error == boost::asio::error::connection_aborted)) {
+    ctx.logger.write_debug("Read failed: " + error.message(), "Connection::handle_read");
     this->end();
     read->close();
     write->close();
@@ -209,7 +210,7 @@ void Connection::handle_read(
   try {
     boost::asio::write(*write, boost::asio::buffer(buffer, bytes_transferred));
   } catch (boost::system::system_error &e) {
-    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+    ctx.logger.write_warn("Write failed: " + std::string(e.what()), "Connection::handle_read");
     return;
   }
 
@@ -231,7 +232,7 @@ void Connection::record_payload(int payload_size) {
 
 void Connection::end() {
   if (this->start_time == std::chrono::system_clock::time_point()) {
-    throw "Connection was not started.";
+    ctx.logger.write_error("Attempting to closed unstarted connection.");
   }
   if (this->end_time == std::chrono::system_clock::time_point()) {
     this->end_time = std::chrono::system_clock::now();
@@ -250,7 +251,7 @@ void Connection::write_error_to_client(const char *const message, int length, st
   try {
     boost::asio::write(*(this->client_socket), boost::asio::buffer(buffer, length));
   } catch (boost::system::system_error &e) {
-    ctx.logger.write_warn("Write failed: " + std::string(e.what()));
+    ctx.logger.write_error("Write failed: " + std::string(e.what()), "Connection::write_error_to_client");
   }
 }
 

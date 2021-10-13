@@ -12,16 +12,14 @@ int main(int argc, char * argv[]) {
     return 255;
   }
   if (argc >= 3) {
-    switch (atoi(argv[2])) {
-      case 0:
-        ctx.telemetry = false;
-        break;
-      case 1:
-        ctx.telemetry = true;
-        break;
-      default:
-        std::cout << "Invalid options\n" << "Telemetry = 0 (Disabled) | 1 (Enabled)" << std::endl;
-        return 1;
+    std::string telemetry_flag = std::string(argv[2]);
+    if (telemetry_flag == "0") {
+      ctx.telemetry = false;
+    } else if (telemetry_flag == "1") {
+      ctx.telemetry = true;
+    } else {
+      std::cout << "Invalid options\n" << "Telemetry = 0 (Disabled) | 1 (Enabled)" << std::endl;
+      return 1;
     }
   }
   if (argc == 5) {

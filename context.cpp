@@ -5,9 +5,11 @@
 
 #include "logger.hpp"
 
+#define LOG_FILE_PATH "./proxy.log"
+
 context ctx = {
     .resolver = boost::asio::ip::tcp::resolver(ctx.ctx),
-    .logger = Logger("./log"),
+    .logger = Logger(LOG_FILE_PATH),
     .telemetry = false,
     .blacklist = Blacklist()
 };

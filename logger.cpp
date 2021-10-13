@@ -32,28 +32,54 @@ void Logger::write(Level lvl, std::string message) {
   this->log_file << formatted_message << std::endl;
 }
 
-void Logger::write_debug(std::string message) {
-  if (this->log_level == 0) {
-    this->write(DEBUG, message);
+void Logger::write_debug(std::string message, std::string function = "") {
+  if (this->log_level > 0) {
+    return;
   }
+  if (function != "") {
+    message = function + "|" + message;
+  }
+  this->write(DEBUG, message);
 }
 
-void Logger::write_info(std::string message) {
-  if (this->log_level <= 1) {
-    this->write(INFO, message);
+void Logger::write_info(std::string message, std::string function = "") {
+  if (this->log_level > 1) {
+    return;
   }
+  if (function != "") {
+    message = function + "|" + message;
+  }
+  this->write(INFO, message);
 }
 
-void Logger::write_warn(std::string message) {
-  if (this->log_level <= 2) {
-    this->write(WARN, message);
+void Logger::write_warn(std::string message, std::string function = "") {
+  if (this->log_level > 2) {
+    return;
   }
+  if (function != "") {
+    message = function + "|" + message;
+  }
+  this->write(WARN, message);
 }
 
-void Logger::write_error(std::string message) {
-  if (this->log_level <= 3) {
-    this->write(ERROR, message);
+void Logger::write_error(std::string message, std::string function = "") {
+  if (this->log_level > 4) {
+    return;
   }
+  if (function != "") {
+    message = function + "|" + message;
+  }
+  this->write(ERROR, message);
+}
+
+void Logger::write_fatal(std::string message, std::string function = "") {
+  if (this->log_level > 4) {
+    return;
+  }
+  if (function != "") {
+    message = function + "|" + message;
+  }
+  this->write(FATAL, message);
 }
 
 std::string Logger::current_timestamp() {
@@ -75,6 +101,8 @@ std::string Logger::level_to_string(Level lvl) {
       return "WARN";
     case ERROR:
       return "ERROR";
+    case FATAL:
+      return "FATAL";
     default:
       return "";
   }

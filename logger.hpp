@@ -4,17 +4,18 @@
 #include <fstream>
 #include <string>
 
-enum Level {DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, DISABLED = 4};
+enum Level {DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3, FATAL = 4, DISABLED = 5};
 
 class Logger {
   public:
     explicit Logger(std::string);
     void close();
     void set_logging_level(Level);
-    void write_debug(std::string);
-    void write_info(std::string);
-    void write_warn(std::string);
-    void write_error(std::string);
+    void write_debug(std::string, std::string = "");
+    void write_info(std::string, std::string = "");
+    void write_warn(std::string, std::string = "");
+    void write_error(std::string, std::string = "");
+    void write_fatal(std::string, std::string = "");
 
   protected:
     void write(Level, std::string);
