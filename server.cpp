@@ -70,22 +70,19 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
     int bytes_transferred = 0;
     try {
       bytes_transferred = boost::asio::read_until(*client_socket, *stream_buffer, END_OF_MESSAGE);
-    } catch (boost::system::system_error &e) {
-      ctx.logger.write_warn(e.what());
-      return;
-    }
-    std::string message = std::string(
-      boost::asio::buffers_begin(stream_buffer->data()),
-      boost::asio::buffers_begin(stream_buffer->data()) + bytes_transferred);
-    stream_buffer->consume(bytes_transferred);
-    std::string remaining = std::string(
-      boost::asio::buffers_begin(stream_buffer->data()),
-      boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
-    delete stream_buffer;
-    try {
+      std::string message = std::string(
+        boost::asio::buffers_begin(stream_buffer->data()),
+        boost::asio::buffers_begin(stream_buffer->data()) + bytes_transferred);
+      stream_buffer->consume(bytes_transferred);
+      std::string remaining = std::string(
+        boost::asio::buffers_begin(stream_buffer->data()),
+        boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
+      delete stream_buffer;
       std::shared_ptr<Connection> connection = Connection::create(client_socket, message);
       ctx.logger.write_debug(message);
       connection->handle_connection(remaining);
+    } catch (boost::system::system_error &e) {
+      ctx.logger.write_warn(e.what());
     } catch (BadRequestException &e) {
       ctx.logger.write_warn(e.what());
     } catch (UnsupportedHTTPVersionException &e) {
