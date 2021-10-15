@@ -1,4 +1,4 @@
-log
+proxy.log
 *.o
 proxy
 blacklist

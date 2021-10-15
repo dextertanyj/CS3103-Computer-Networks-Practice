@@ -32,7 +32,7 @@ void Logger::write(Level lvl, std::string message) {
   this->log_file << formatted_message << std::endl;
 }
 
-void Logger::write_debug(std::string message, std::string function = "") {
+void Logger::write_debug(std::string message, std::string function) {
   if (this->log_level > 0) {
     return;
   }
@@ -42,7 +42,7 @@ void Logger::write_debug(std::string message, std::string function = "") {
   this->write(DEBUG, message);
 }
 
-void Logger::write_info(std::string message, std::string function = "") {
+void Logger::write_info(std::string message, std::string function) {
   if (this->log_level > 1) {
     return;
   }
@@ -52,7 +52,7 @@ void Logger::write_info(std::string message, std::string function = "") {
   this->write(INFO, message);
 }
 
-void Logger::write_warn(std::string message, std::string function = "") {
+void Logger::write_warn(std::string message, std::string function) {
   if (this->log_level > 2) {
     return;
   }
@@ -62,7 +62,7 @@ void Logger::write_warn(std::string message, std::string function = "") {
   this->write(WARN, message);
 }
 
-void Logger::write_error(std::string message, std::string function = "") {
+void Logger::write_error(std::string message, std::string function) {
   if (this->log_level > 4) {
     return;
   }
@@ -72,7 +72,7 @@ void Logger::write_error(std::string message, std::string function = "") {
   this->write(ERROR, message);
 }
 
-void Logger::write_fatal(std::string message, std::string function = "") {
+void Logger::write_fatal(std::string message, std::string function) {
   if (this->log_level > 4) {
     return;
   }
