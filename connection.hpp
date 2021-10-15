@@ -74,6 +74,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
     void start();
     void record_payload(int);
     void end();
+    void write_error_to_client(const char *const, int, int);
     void write_error_to_client(const char *const, int, std::string&);
 
     static bool validate_header(std::string&);

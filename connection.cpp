@@ -13,17 +13,21 @@
 static boost::regex STANDARD_REQUEST = boost::regex("^[A-Z]+ (\\S)+ HTTP\\/\\S+\\r\\n(\\S+:(\\S| )+\\r\\n)*\\r\\n$");
 static boost::regex REQUEST_LINE = boost::regex("^CONNECT (?<hostname>[^:]+)(?<port>:\\S+)? HTTP/(?<version>\\S+)\\r\\n");
 
-#define CONNECTION_ESTABLISHED_LENGTH 41
-#define BAD_REQUEST_LENGTH 29
-#define FORBIDDEN_LENGTH 27
-#define METHOD_NOT_ALLOWED_LENGTH 36
-#define VERSION_NOT_SUPPORTED_LENGTH 44
+#define CONNECTION_ESTABLISHED_LENGTH 39
+#define BAD_REQUEST_LENGTH 28
+#define FORBIDDEN_LENGTH 26
+#define NOT_FOUND_LENGTH 26
+#define METHOD_NOT_ALLOWED_LENGTH 35
+#define VERSION_NOT_SUPPORTED_LENGTH 43
+#define BAD_GATEWAY_LENGTH 28
 
+static const char *const HTTP_CONNECTION_ESTABLISHED = "HTTP/1.%d 200 Connection established\r\n\r\n";
 static const char *const HTTP_BAD_REQUEST = "HTTP/1.%d 400 Bad Request\r\n\r\n";
 static const char *const HTTP_FORBIDDEN = "HTTP/1.%d 403 Forbidden\r\n\r\n";
+static const char *const HTTP_NOT_FOUND = "HTTP/1.%d 404 Not Found\r\n\r\n";
 static const char *const HTTP_METHOD_NOT_ALLOWED = "HTTP/1.%d 405 Method Not Allowed\r\n\r\n";
 static const char *const HTTP_VERSION_NOT_SUPPORTED = "HTTP/1.1 505 HTTP Version Not Supported\r\n\r\n";
-static const char *const HTTP_CONNECTION_ESTABLISHED = "HTTP/1.%d 200 Connection established \r\n\r\n";
+static const char *const HTTP_BAD_GATEWAY = "HTTP/1.%d 502 Bad Gateway\r\n\r\n";
 
 Connection::Connection(std::shared_ptr<boost::asio::ip::tcp::socket> client_socket, std::string header) {
   this->client_socket = client_socket;
@@ -98,6 +102,7 @@ void Connection::handle_connection(std::string initial_data) {
   } catch (NameResolutionError &e) {
     std::string message = e.what();
     ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
+    this->write_error_to_client(HTTP_NOT_FOUND, NOT_FOUND_LENGTH, this->version);
     client_socket->close();
     destination_socket->close();
     return;
@@ -109,12 +114,13 @@ void Connection::handle_connection(std::string initial_data) {
   } catch (boost::system::system_error &e) {
     std::string message = e.what();
     ctx.logger.write_error("Failed to connect: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
+    this->write_error_to_client(HTTP_BAD_GATEWAY, BAD_GATEWAY_LENGTH, this->version);
     client_socket->close();
     destination_socket->close();
     return;
   }
-  char message[CONNECTION_ESTABLISHED_LENGTH] = {0};
-  snprintf(message, CONNECTION_ESTABLISHED_LENGTH,
+  char message[CONNECTION_ESTABLISHED_LENGTH + 1] = {0};
+  snprintf(message, CONNECTION_ESTABLISHED_LENGTH + 1,
     HTTP_CONNECTION_ESTABLISHED, this->get_version());
   try {
     boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
@@ -239,20 +245,24 @@ void Connection::end() {
   }
 }
 
-void Connection::write_error_to_client(const char *const message, int length, std::string &header) {
-  char buffer[length] = {0};
-  int version = 0;
-  if (size_t token = header.find("HTTP/1.") ) {
-    if (header.size() > token + 8) {
-      version = atoi(header.substr(token + 7, 1).c_str());
-    }
-  }
-  snprintf(buffer, length, message, version);
+void Connection::write_error_to_client(const char *const message, int length, int version) {
+  char buffer[length + 1] = {0};
+  snprintf(buffer, length + 1, message, version);
   try {
     boost::asio::write(*(this->client_socket), boost::asio::buffer(buffer, length));
   } catch (boost::system::system_error &e) {
     ctx.logger.write_error("Write failed: " + std::string(e.what()), "Connection::write_error_to_client");
   }
+}
+
+void Connection::write_error_to_client(const char *const message, int length, std::string &header) {
+  int version = 1;
+  if (size_t token = header.find("HTTP/1.") ) {
+    if (header.size() > token + 8) {
+      version = atoi(header.substr(token + 7, 1).c_str());
+    }
+  }
+  this->write_error_to_client(message, length, version);
 }
 
 bool Connection::validate_header(std::string& header) {
