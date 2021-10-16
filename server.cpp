@@ -78,12 +78,14 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
         boost::asio::buffers_begin(stream_buffer->data()),
         boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
       delete stream_buffer;
-      std::shared_ptr<Connection> connection = Connection::create(client_socket, message);
       ctx.logger.write_debug(message);
+      std::shared_ptr<Connection> connection = Connection::create(client_socket, message);
       connection->handle_connection(remaining);
     } catch (boost::system::system_error &e) {
       ctx.logger.write_error(e.what(), "Server::handle_accept");
     } catch (BadRequestException &e) {
+      ctx.logger.write_warn(e.what(), "Server::handle_accept");
+    } catch (UnsupportedHTTPMethod &e) {
       ctx.logger.write_warn(e.what(), "Server::handle_accept");
     } catch (UnsupportedHTTPVersionException &e) {
       ctx.logger.write_warn(e.what(), "Server::handle_accept");
