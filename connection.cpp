@@ -94,29 +94,29 @@ std::shared_ptr<Connection> Connection::create(std::shared_ptr<boost::asio::ip::
 void Connection::handle_connection(std::string initial_data) {
   this->start();
   std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = this->get_client_socket();
-  std::shared_ptr<boost::asio::ip::tcp::socket> destination_socket = std::make_shared<boost::asio::ip::tcp::socket>(ctx.ctx);
-  this->destination_socket = destination_socket;
-  boost::asio::ip::tcp::endpoint destination;
+  std::shared_ptr<boost::asio::ip::tcp::socket> server_socket = std::make_shared<boost::asio::ip::tcp::socket>(ctx.ctx);
+  this->server_socket = server_socket;
+  boost::asio::ip::tcp::endpoint server_endpoint;
   try {
-    destination = Connection::resolve(this->get_hostname().append("."), std::to_string(this->get_port()));
+    server_endpoint = Connection::resolve(this->get_hostname().append("."), std::to_string(this->get_port()));
   } catch (NameResolutionError &e) {
     std::string message = e.what();
     ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
     this->write_error_to_client(HTTP_NOT_FOUND, NOT_FOUND_LENGTH, this->version);
     client_socket->close();
-    destination_socket->close();
+    server_socket->close();
     return;
   }
   ctx.logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
   try {
-    destination_socket->open(destination.protocol());
-    destination_socket->connect(destination);
+    server_socket->open(server_endpoint.protocol());
+    server_socket->connect(server_endpoint);
   } catch (boost::system::system_error &e) {
     std::string message = e.what();
     ctx.logger.write_error("Failed to connect: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
     this->write_error_to_client(HTTP_BAD_GATEWAY, BAD_GATEWAY_LENGTH, this->version);
     client_socket->close();
-    destination_socket->close();
+    server_socket->close();
     return;
   }
   char message[CONNECTION_ESTABLISHED_LENGTH + 1] = {0};
@@ -132,13 +132,13 @@ void Connection::handle_connection(std::string initial_data) {
   client_socket->async_receive(boost::asio::buffer(this->client_buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
       shared_from_this(),
-      client_socket, destination_socket,
+      client_socket, server_socket,
       this->client_buffer,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
-  destination_socket->async_receive(boost::asio::buffer(this->server_buffer, BUFFER_SIZE),
+  server_socket->async_receive(boost::asio::buffer(this->server_buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
       shared_from_this(),
-      destination_socket, client_socket,
+      server_socket, client_socket,
       this->server_buffer,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
   return;
@@ -153,7 +153,7 @@ std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_client_socket() {
 }
 
 std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_server_socket() {
-  return this->destination_socket;
+  return this->server_socket;
 }
 
 std::string Connection::get_hostname() {

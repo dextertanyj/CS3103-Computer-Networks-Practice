@@ -51,7 +51,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
   private:
     // Connection information
     std::shared_ptr<boost::asio::ip::tcp::socket> client_socket;
-    std::shared_ptr<boost::asio::ip::tcp::socket> destination_socket;
+    std::shared_ptr<boost::asio::ip::tcp::socket> server_socket;
     std::string hostname;
     int port;
     int version;
