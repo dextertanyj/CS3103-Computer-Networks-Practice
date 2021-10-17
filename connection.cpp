@@ -92,7 +92,6 @@ std::shared_ptr<Connection> Connection::create(std::shared_ptr<boost::asio::ip::
 }
 
 void Connection::handle_connection(std::string initial_data) {
-  this->start();
   std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = this->get_client_socket();
   std::shared_ptr<boost::asio::ip::tcp::socket> server_socket = std::make_shared<boost::asio::ip::tcp::socket>(ctx.ctx);
   this->server_socket = server_socket;
@@ -108,6 +107,7 @@ void Connection::handle_connection(std::string initial_data) {
     return;
   }
   ctx.logger.write_info("Connecting to: " + hostname + ":" + std::to_string(port));
+  this->start();
   try {
     server_socket->open(server_endpoint.protocol());
     server_socket->connect(server_endpoint);
@@ -134,12 +134,14 @@ void Connection::handle_connection(std::string initial_data) {
       shared_from_this(),
       client_socket, server_socket,
       this->client_buffer,
+      false,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
   server_socket->async_receive(boost::asio::buffer(this->server_buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
       shared_from_this(),
       server_socket, client_socket,
       this->server_buffer,
+      true,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
   return;
 }
@@ -197,6 +199,7 @@ void Connection::handle_read(
   std::shared_ptr<boost::asio::ip::tcp::socket> read,
   std::shared_ptr<boost::asio::ip::tcp::socket> write,
   char* buffer,
+  bool record_transfer,
   size_t bytes_transferred,
   const boost::system::error_code &error
 ) {
@@ -219,12 +222,13 @@ void Connection::handle_read(
     ctx.logger.write_warn("Write failed: " + std::string(e.what()), "Connection::handle_read");
     return;
   }
-
-  this->record_payload(bytes_transferred);
+  if (record_transfer) {
+    this->record_payload(bytes_transferred);
+  }
   read->async_read_some(boost::asio::buffer(buffer, BUFFER_SIZE),
     boost::bind(&Connection::handle_read,
       shared_from_this(),
-      read, write, buffer,
+      read, write, buffer, record_transfer,
       boost::asio::placeholders::bytes_transferred, boost::asio::placeholders::error));
 }
 
