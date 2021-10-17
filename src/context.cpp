@@ -3,7 +3,7 @@
 #include <boost/asio.hpp>
 #include <boost/thread.hpp>
 
-#include "logger.hpp"
+#include "logger/logger.hpp"
 
 #define LOG_FILE_PATH "./proxy.log"
 

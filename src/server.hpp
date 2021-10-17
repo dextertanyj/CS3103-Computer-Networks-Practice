@@ -6,8 +6,6 @@
 #include <boost/asio.hpp>
 #include <boost/thread.hpp>
 
-#include "logger.hpp"
-
 class Server : public std::enable_shared_from_this<Server> {
   public:
     static std::shared_ptr<Server> create(int);

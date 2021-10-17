@@ -4,7 +4,7 @@
 #include <boost/asio.hpp>
 #include <boost/thread.hpp>
 
-#include "logger.hpp"
+#include "logger/logger.hpp"
 #include "blacklist.hpp"
 
 struct context {

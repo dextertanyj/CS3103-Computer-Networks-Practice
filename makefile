@@ -6,23 +6,25 @@ TARGET=proxy
 proxy: main.o server.o connection.o context.o blacklist.o logger.o
 	$(CC) $(CFLAGS) -o proxy main.o server.o connection.o context.o blacklist.o logger.o $(LIBS)
 
-main.o: main.cpp server.hpp context.hpp
-	$(CC) $(CFLAGS) -c main.cpp
+main.o: src/main.cpp src/server.hpp src/context.hpp
+	$(CC) $(CFLAGS) -c src/main.cpp
 
-server.o: server.cpp server.hpp connection.hpp context.hpp
-	$(CC) $(CFLAGS) -c server.cpp
+server.o: src/server.cpp src/server.hpp src/connection.hpp src/context.hpp 
+	$(CC) $(CFLAGS) -c src/server.cpp
 
-connection.o: connection.cpp connection.hpp context.hpp
-	$(CC) $(CFLAGS) -c connection.cpp
+connection.o: src/connection.cpp src/connection.hpp src/context.hpp
+	$(CC) $(CFLAGS) -c src/connection.cpp
 
-context.o: context.cpp context.hpp blacklist.hpp logger.hpp
-	$(CC) $(CFLAGS) -c context.cpp
+context.o: src/context.cpp src/context.hpp src/blacklist.hpp src/logger/logger.hpp
+	$(CC) $(CFLAGS) -c src/context.cpp
 
-blacklist.o: blacklist.cpp blacklist.hpp
-	$(CC) $(CFLAGS) -c blacklist.cpp
+blacklist.o: src/blacklist.cpp src/blacklist.hpp
+	$(CC) $(CFLAGS) -c src/blacklist.cpp
 
-logger.o: logger.cpp logger.hpp
-	$(CC) $(CFLAGS) -c logger.cpp
+logger.o: src/logger/logger.cpp src/logger/logger.hpp
+	$(CC) $(CFLAGS) -c src/logger/logger.cpp
+
+.PHONY: clean
 
 clean:
 	$(RM) proxy *.o
