@@ -39,14 +39,7 @@ class Connection : public std::enable_shared_from_this<Connection> {
     ~Connection();
     static std::shared_ptr<Connection> create(std::shared_ptr<boost::asio::ip::tcp::socket>, std::string);
     void handle_connection(std::string);
-
     std::shared_ptr<Connection> shared_ptr();
-    std::shared_ptr<boost::asio::ip::tcp::socket> get_client_socket();
-    std::shared_ptr<boost::asio::ip::tcp::socket> get_server_socket();
-    std::string get_hostname();
-    int get_port();
-    int get_version();
-    std::string get_option(std::string);
 
   private:
     // Connection information

@@ -92,15 +92,15 @@ std::shared_ptr<Connection> Connection::create(std::shared_ptr<boost::asio::ip::
 }
 
 void Connection::handle_connection(std::string initial_data) {
-  std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = this->get_client_socket();
+  std::shared_ptr<boost::asio::ip::tcp::socket> client_socket = this->client_socket;
   std::shared_ptr<boost::asio::ip::tcp::socket> server_socket = std::make_shared<boost::asio::ip::tcp::socket>(ctx.ctx);
   this->server_socket = server_socket;
   boost::asio::ip::tcp::endpoint server_endpoint;
   try {
-    server_endpoint = Connection::resolve(this->get_hostname().append("."), std::to_string(this->get_port()));
+    server_endpoint = Connection::resolve(this->hostname + ".", std::to_string(this->port));
   } catch (NameResolutionError &e) {
     std::string message = e.what();
-    ctx.logger.write_warn("Failed to resolve: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
+    ctx.logger.write_warn("Failed to resolve: " + this->hostname + "|" + message, "Connection::handle_connection");
     this->write_error_to_client(HTTP_NOT_FOUND, NOT_FOUND_LENGTH, this->version);
     client_socket->close();
     server_socket->close();
@@ -113,7 +113,7 @@ void Connection::handle_connection(std::string initial_data) {
     server_socket->connect(server_endpoint);
   } catch (boost::system::system_error &e) {
     std::string message = e.what();
-    ctx.logger.write_error("Failed to connect: " + this->get_hostname() + "|" + message, "Connection::handle_connection");
+    ctx.logger.write_error("Failed to connect: " + this->hostname + "|" + message, "Connection::handle_connection");
     this->write_error_to_client(HTTP_BAD_GATEWAY, BAD_GATEWAY_LENGTH, this->version);
     client_socket->close();
     server_socket->close();
@@ -121,7 +121,7 @@ void Connection::handle_connection(std::string initial_data) {
   }
   char message[CONNECTION_ESTABLISHED_LENGTH + 1] = {0};
   snprintf(message, CONNECTION_ESTABLISHED_LENGTH + 1,
-    HTTP_CONNECTION_ESTABLISHED, this->get_version());
+    HTTP_CONNECTION_ESTABLISHED, this->version);
   try {
     boost::asio::write(*client_socket, boost::asio::buffer(message, CONNECTION_ESTABLISHED_LENGTH));
   } catch (boost::system::system_error &e) {
@@ -148,35 +148,6 @@ void Connection::handle_connection(std::string initial_data) {
 
 std::shared_ptr<Connection> Connection::shared_ptr() {
   return shared_from_this();
-}
-
-std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_client_socket() {
-  return this->client_socket;
-}
-
-std::shared_ptr<boost::asio::ip::tcp::socket> Connection::get_server_socket() {
-  return this->server_socket;
-}
-
-std::string Connection::get_hostname() {
-  return this->hostname;
-}
-
-int Connection::get_port() {
-  return this->port;
-}
-
-int Connection::get_version() {
-  return this->version;
-}
-
-std::string Connection::get_option(std::string key) {
-  std::string key_case_insensitive = std::string();
-  std::transform(key.begin(), key.end(), key_case_insensitive.begin(), ::tolower);
-  if (this->options.find(key_case_insensitive) == options.end()) {
-    return "";
-  }
-  return this->options.find(key_case_insensitive)->second;
 }
 
 bool Connection::has_telemetry() {

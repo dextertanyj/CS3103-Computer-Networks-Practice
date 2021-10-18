@@ -11,6 +11,7 @@ class Server : public std::enable_shared_from_this<Server> {
     static std::shared_ptr<Server> create(int);
     ~Server();
     void listen();
+    
   private:
     explicit Server(int);
     std::unique_ptr<boost::thread_group> thread_group;

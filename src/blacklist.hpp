@@ -11,6 +11,7 @@ class Blacklist {
 		void add_entries(std::unique_ptr<std::vector<std::string>>);
 		void add_entry(std::string);
 		bool is_blocked(std::string);
+
 	private:
 		std::unique_ptr<std::vector<std::string>> hostnames;
 };
