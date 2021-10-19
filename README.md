@@ -32,6 +32,8 @@ The HTTPS proxy has been tested to compile and run on both XCNE 1 and 2, however
     proxy/
     ├- README.md
     ├- makefile
+    ├- images/
+    │   └- ...
     └- src/
         ├- main.cpp
         ├- server.hpp
