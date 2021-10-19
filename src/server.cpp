@@ -81,7 +81,6 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
       std::string remaining = std::string(
         boost::asio::buffers_begin(stream_buffer->data()),
         boost::asio::buffers_begin(stream_buffer->data()) + stream_buffer->size());
-      delete stream_buffer;
       ctx.logger.write_debug(message);
       std::shared_ptr<Connection> connection = Connection::create(client_socket, message);
       connection->handle_connection(remaining);
@@ -96,6 +95,7 @@ void Server::handle_accept(const boost::system::error_code &error, boost::asio::
     } catch (BlockedException &e) {
       ctx.logger.write_info(e.what(), "Server::handle_accept");
     }
+    delete stream_buffer;
   } else {
     ctx.logger.write_error(error.message(), "Server::handle_accept");
   }
