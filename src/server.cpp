@@ -17,13 +17,14 @@
 void interrupt_handler(int) {
   ctx.logger.write_info("Shutting down.");
   ctx.ctx.stop();
+  ctx.accept_ctx.stop();
 }
 
 Server::Server(int port) : thread_group(std::make_unique<boost::thread_group>()) {
   uint16_t listen_port = boost::lexical_cast<uint16_t>(port);
   boost::asio::ip::address_v4 local_address = boost::asio::ip::address_v4(ALL_INTERFACES);
   boost::asio::ip::tcp::endpoint listen_endpoint = boost::asio::ip::tcp::endpoint(local_address, listen_port);
-  this->listen_socket = std::make_shared<boost::asio::ip::tcp::acceptor>(ctx.ctx, listen_endpoint.protocol());
+  this->listen_socket = std::make_shared<boost::asio::ip::tcp::acceptor>(ctx.accept_ctx, listen_endpoint.protocol());
   try {
     this->listen_socket->bind(listen_endpoint);
   } catch (boost::system::system_error &e) {
@@ -42,6 +43,7 @@ std::shared_ptr<Server> Server::create(int port) {
 }
 
 void Server::listen() {
+  ctx.accept_ctx.reset();
   ctx.ctx.reset();
   try {
     this->listen_socket->listen();
@@ -51,12 +53,14 @@ void Server::listen() {
   }
   ctx.logger.write_info("Listening on port " + std::to_string(this->listen_socket->local_endpoint().port()));
   boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(ctx.ctx.get_executor());
+  boost::asio::executor_work_guard<boost::asio::io_context::executor_type> accept_work(ctx.accept_ctx.get_executor());
   for (int i = 0; i < THREAD_COUNT; i++) {
     this->thread_group->create_thread(boost::bind(&boost::asio::io_context::run, &(ctx.ctx)));
     ctx.logger.write_debug("Starting thread: " + std::to_string(i));
   }
   this->listen_socket->async_accept(ctx.ctx, std::bind(&Server::handle_accept, shared_from_this(), std::placeholders::_1, std::placeholders::_2));
   std::signal(SIGINT, interrupt_handler);
+  ctx.accept_ctx.run();
   this->thread_group->join_all();
 }
 

@@ -9,6 +9,7 @@
 
 struct context {
     boost::asio::io_context ctx;
+    boost::asio::io_context accept_ctx;
     boost::asio::ip::tcp::resolver resolver;
     boost::mutex resolver_mutex;
     Logger logger;
