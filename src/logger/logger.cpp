@@ -24,12 +24,12 @@ void Logger::set_logging_level(Level lvl) {
 }
 
 void Logger::write(Level lvl, std::string message) {
-  std::string removed = boost::regex_replace(message, CR, CR_REPLACEMENT);
-  std::string message2 = boost::regex_replace(removed, LF, LF_REPLACEMENT);
+  std::string trimmed = boost::regex_replace(message, CR, CR_REPLACEMENT);
+  trimmed = boost::regex_replace(trimmed, LF, LF_REPLACEMENT);
   std::string timestamp = Logger::current_timestamp();
   std::string lvl_string = Logger::level_to_string(lvl);
-  std::string formatted_message = timestamp + "|" + lvl_string + "|" + message2;
-  this->log_file << formatted_message << std::endl;
+  std::string formatted_message = timestamp + "|" + lvl_string + "|" + trimmed + "\n";
+  this->log_file << formatted_message;
 }
 
 void Logger::write_debug(std::string message, std::string function) {
