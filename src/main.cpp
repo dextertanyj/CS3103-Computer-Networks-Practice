@@ -9,7 +9,7 @@
 int main(int argc, char * argv[]) {
   if (argc <= 2 || argc > 5) {
     std::cout << "Usage: ./proxy PORT [TELEMETRY] [BLACKLIST] [LOGGING]";
-    return 255;
+    return 1;
   }
   if (argc >= 3) {
     std::string telemetry_flag = std::string(argv[2]);
@@ -19,7 +19,7 @@ int main(int argc, char * argv[]) {
       ctx.telemetry = true;
     } else {
       std::cout << "Invalid options\n" << "Telemetry = 0 (Disabled) | 1 (Enabled)" << std::endl;
-      return 1;
+      return 2;
     }
   }
   if (argc == 5) {
@@ -34,7 +34,7 @@ int main(int argc, char * argv[]) {
       ctx.logger.set_logging_level(ERROR);
     } else {
       std::cout << "Invalid options\n" << "Logging = debug | info | warn | error" << std::endl;
-      return 1;
+      return 2;
     }
   }
   if (argc >= 4 && access(argv[3], F_OK) == 0) {
@@ -51,6 +51,8 @@ int main(int argc, char * argv[]) {
     ctx.blacklist.add_entries(std::move(entries));
   } else if (argc >= 4) {
     ctx.logger.write_info("Blacklist file not found: " + std::string(argv[3]));
+    std::cout << "Specified file not found: " << std::string(argv[3]) << std::endl;
+    return 3;
   }
   std::shared_ptr<Server> server = Server::create(atoi(argv[1]));
   server->listen();

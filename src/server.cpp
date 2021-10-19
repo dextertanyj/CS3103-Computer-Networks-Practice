@@ -1,6 +1,7 @@
 #include "server.hpp"
 
 #include <csignal>
+#include <iostream>
 #include <string>
 
 #include <boost/asio.hpp>
@@ -29,7 +30,8 @@ Server::Server(int port) : thread_group(std::make_unique<boost::thread_group>())
     this->listen_socket->bind(listen_endpoint);
   } catch (boost::system::system_error &e) {
     ctx.logger.write_fatal(e.what(), "Server::Server");
-    exit(1);
+    std::cout << "Unable to bind socket to specified port | " << e.what() << std::endl;
+    exit(3);
   }
   ctx.logger.write_info("Server created.");
 }
@@ -49,7 +51,8 @@ void Server::listen() {
     this->listen_socket->listen();
   } catch (boost::system::system_error &e) {
     ctx.logger.write_fatal(e.what(), "Server::listen");
-    exit(2);
+    std::cout << "Unable to listen for connections | " << e.what() << std::endl;
+    exit(4);
   }
   ctx.logger.write_info("Listening on port " + std::to_string(this->listen_socket->local_endpoint().port()));
   boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(ctx.ctx.get_executor());

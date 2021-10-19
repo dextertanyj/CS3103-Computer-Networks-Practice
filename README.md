@@ -30,17 +30,17 @@ The HTTPS proxy has been tested to compile and run on both XCNE 1 and 2, however
 1. The above command should setup the files in the following structure:
     ```
     proxy/
-    ├- README.md
-    ├- makefile
-    ├- images/
-    │   └- ...
-    └- src/
-        ├- main.cpp
-        ├- server.hpp
-        ├- server.cpp
-        ├- ...
-        └- logger/
-           └- ...
+    ├─ README.md
+    ├─ makefile
+    ├─ images/
+    │   └─ ...
+    └─ src/
+        ├─ main.cpp
+        ├─ server.hpp
+        ├─ server.cpp
+        ├─ ...
+        └─ logger/
+           └─ ...
     ```
 1. To compile the proxy, you can use the makefile provided in the `proxy` folder: `$ make`
     - If you need to clean up the object files and executable, you can use: `$ make clean`
