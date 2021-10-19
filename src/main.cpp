@@ -49,7 +49,7 @@ int main(int argc, char * argv[]) {
     }
     blacklist_file.close();
     ctx.blacklist.add_entries(std::move(entries));
-  } else {
+  } else if (argc >= 4) {
     ctx.logger.write_info("Blacklist file not found: " + std::string(argv[3]));
   }
   std::shared_ptr<Server> server = Server::create(atoi(argv[1]));
