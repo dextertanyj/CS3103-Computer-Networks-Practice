@@ -7,8 +7,8 @@
 #include "server.hpp"
 
 int main(int argc, char * argv[]) {
-  if (argc <= 2 || argc > 5) {
-    std::cout << "Usage: ./proxy PORT [TELEMETRY] [BLACKLIST] [LOGGING]";
+  if (argc < 2 || argc > 5) {
+    std::cout << "Usage: ./proxy PORT [TELEMETRY_FLAG [PATH_TO_BLACKLIST]]`" << std::endl;
     return 1;
   }
   if (argc >= 3) {
