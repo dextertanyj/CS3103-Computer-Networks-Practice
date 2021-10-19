@@ -13,6 +13,8 @@
     - [Logger](#logger)
 - [Key Design Aspects](#key-design-aspects)
 - [Process Flow](#process-flow)
+- [Comparison Between HTTP Versions](#comparison-between-http-versions)
+
 ---
 
 ## Getting Started
@@ -76,7 +78,7 @@ This class exposes the following methods:
 ### `Context`
 The `Context` structure contains the relevant objects that form the context of the proxy. \
 Each `Context` instance includes the following:
-- The `io_context` object.
+- Two `io_context` objects, one for the welcome socket and the other for client/server sockets.
 - The hostname `resolver` object and a `mutex` to control access to the resolver.
 - The logging facility.
 - A `Boolean` flag denoting if telemetry is enabled for the proxy.
@@ -100,14 +102,13 @@ The HTTPS proxy was implemented using C++ and heavily relies on the Boost C++ li
 In particular, the asynchronous IO library allows the proxy to maintain and wait on multiple persistent connections while simultaneously serving other active connections. 
 This is achieved through the use of a single IO context object which all sockets are bound to. 
 This causes the callback function of any asynchronous operation to be executed on any available thread for which the IO context object has been bound to, in this case any of the 8 child threads or parent thread. 
-By implementing all reads from the client or server to be asynchronous reads with the callback managing the writing of data to the other side of the connection, and recording telemetry data, we are able to utilize the 8+1 threads much more efficiently. 
+By implementing all reads from the client or server to be asynchronous reads with the callback managing the writing of data to the other side of the connection, and recording telemetry data, we are able to utilize the 8 threads much more efficiently.
 We are also able to handle idle persistent connections properly without preventing other connections from being accepted or served.
 
 Due to the relatively unpredictable nature of asynchronous programming, each connection between a client and server is guarded by a unique mutex which prevents any possible race conditions on reading from or writing to the sockets.
 
 Apart from implementing the read operations between the client and server as asynchronous operations, the process of accepting new connections on the welcome socket was also implemented as an asynchronous operation. 
-This allowed the parent thread to serve relaying data between client and server sockets when there were no new connections that needed to be accepted, which is significantly less frequent when persistent connections are used. 
-A side effect of this conversion to use asynchronous operations was the added ability to capture the interrupt signal and enable graceful shutdown of the proxy.
+This conversion to use asynchronous operations added ability to capture the interrupt signal and enable graceful shutdown of the proxy.
 
 ---
 
@@ -117,7 +118,7 @@ A side effect of this conversion to use asynchronous operations was the added ab
    The application first initializes the default global context, and updates it with the relevant command line arguments such as telemetry and blacklist data.
 1. An instance of the `Server` class is then created with the specified port number, which creates a TCP welcome socket bound to the port number.
 1. Thereafter, the application calls the `Server::listen` method which creates 8 child threads and begins listening on the welcoming socket for connection requests.
-1. When a client initiates a TCP connection with the proxy, the application accepts the connection and executes the `Server::handle_accept` callback on one of the threads. 
+1. When a client initiates a TCP connection with the proxy, the application accepts the connection and executes the `Server::handle_accept` callback on the parent thread. 
    This callback reads the client socket until a valid HTTP message has been received or an error occurs.
 1. Once a valid HTTP message has been received, the message is passed to the constructor of the `Connection` class for validation and parsing. This process validates the syntax of the HTTP request message, HTTP method, HTTP version, hostname and port information. In addition, the hostname of the server is also checked against the blacklist and the proxy request is rejected if a match is found.
    - If the received message cannot be parsed or handled by the proxy, the proxy sends an error message to the client and closes the connection to the client.
@@ -125,6 +126,23 @@ A side effect of this conversion to use asynchronous operations was the added ab
    - If hostname resolution fails or a connection cannot be established to the server, an error message is sent to the client and the connection is closed.
 1. After a TCP connection has been established to the server, a `200 Connection established` message is sent to the client and the application asynchronously reads from both the client and server sockets for data. At this point, the application also starts a timer which tracks the time for which this connection is open.
    - At this point, the `Server::handle_accept` callback terminates and welcome socket is free to accept new connections.
-1. When data is received from either of the sockets in a `Connection` object, the `Connection::handle_read` method is called. This writes the data received into the destination socket and records the amount of bytes transferred if necessary.
+1. When data is received from either of the sockets in a `Connection` object, the `Connection::handle_read` method is called as a callback. This writes the data received into the destination socket and records the amount of bytes transferred if necessary.
 1. When either side of a `Connection` closes, either exceptionally or otherwise, the timer for the corresponding `Connection` is stopped and the socket for the other end of the connection is closed. This process also terminates the recursive asynchronous listen loop, allowing the `Connection` object to be destroyed.
 1. During the destruction of the `Connection` object, the telemetry data is printed out if necessary.
+
+---
+
+## Comparison Between HTTP Versions
+
+### Difference between HTTPS/1.0 and HTTPS/1.1
+
+Based on collected telemetry data, we observed that when loading the same website, more  HTTP/1.0 connections than HTTP/1.1 connections are established. However, each HTTP/1.0 connection was generally shorter-lived and transmitted less data than HTTP/1.1 connections.
+
+This behaviour is most consistent when loading relatively static websites such as www.comp.nus.edu.sg. During our testing, we found that when HTTP/1.0 was used, 75 connections were established when loading the page, the average size of data transmitted by each connection was 35786 bytes, and the average duration of each connection was 30.998 seconds. In contrast when HTTP/1.1 was used, only 34 connections were established when loading the page, each with an average transmission size of 78667 bytes and average duration of 109.50 seconds.
+
+This observed behaviour can be explained by the default use of persistent connections in HTTP/1.1. Persistent connections allow multiple HTTP requests and their responses to be served over a single TCP connection to the web server. In contrast, HTTP/1.0 does not default to using persistent connections, and each request is served using a separate TCP connection to the web server. (However, HTTP/1.0 does allow for persistent connections if the `Connection: Keep-alive` header is present in the request and both endpoints support it.) Since in HTTP/1.1 each TCP connection is used to serve multiple HTTP requests, the duration of the connections are significantly longer and more bytes are transferred over a single connection in response to the multiple HTTP requests that are served.
+
+| Title | Screenshot |
+| --- | --- |
+| Screenshot of Telemetry for HTTP 1.0 | ![HTTP 1.0 Screen Capture](/images/HTTP-1.0.png)|
+| Screenshot of Telemetry for HTTP 1.1 | ![HTTP 1.1 Screen Capture](/images/HTTP-1.1.png)|
