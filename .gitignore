@@ -2,3 +2,4 @@ proxy.log
 *.o
 proxy
 blacklist
+.vscode
