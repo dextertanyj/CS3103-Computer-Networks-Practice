@@ -26,17 +26,17 @@ fi
 
 chmod +x ./server_client
 
-mkdir -p ./tmp/{pickles,histograms}
-touch ./tmp/output.txt
+mkdir -p ./output/{pickles,histograms}
+touch ./output/output.txt
 mv config_client config_client_0
 mv config_server config_server_0
-for set in 0
+for set in 0 1 2 3 4 5 6
 do
     cp config_client_$set config_client
     cp config_server_$set config_server
-    mkdir -p ./tmp/pickles/set_$set
+    mkdir -p ./output/pickles/set_$set
     echo "Running set $set"
-    for multiplier in 2
+    for multiplier in 2 1 0
     do
         probability=$((multiplier*50))
         echo "Running with probability $probability%"
@@ -52,12 +52,12 @@ do
         schedulerPID=$!
         wait $PID
         kill -s SIGINT $schedulerPID
-        cp client.pickle ./tmp/pickles/set_$set/client.pickle.$set.$probability
-        cp server.pickle ./tmp/pickles/set_$set/server.pickle.$set.$probability
+        cp client.pickle ./output/pickles/set_$set/client.pickle.$set.$probability
+        cp server.pickle ./output/pickles/set_$set/server.pickle.$set.$probability
         time=$(python plot.py | grep "*** Average completion time")
         if [[ ${PIPESTATUS[0]} -eq 0 ]]; then
-            cp histogram.png ./tmp/histograms/histogram.$set.$probability.png
-            echo -e "Set $set | Probability $probability: "$time >> ./tmp/output.txt
+            cp histogram.png ./output/histograms/histogram.$set.$probability.png
+            echo -e "Set $set | Probability $probability: "$time >> ./output/output.txt
         fi
     done
 done
@@ -68,8 +68,8 @@ rm histogram.png
 rm client.pickle
 rm server.pickle
 
-tar -zcvf output.tar.gz ./tmp/
+tar -zcvf output.tar.gz ./output/
 
-rm -rf ./tmp
+rm -rf ./output
 
 exit 0
