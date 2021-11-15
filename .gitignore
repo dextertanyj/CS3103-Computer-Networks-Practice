@@ -1,5 +1,6 @@
-proxy.log
+*.log
 *.o
+output.tar.gz
 proxy
 blacklist
 .vscode
