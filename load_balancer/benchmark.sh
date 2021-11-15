@@ -80,10 +80,12 @@ do
         cp client.pickle ./output/pickles/set_$set/client.pickle.$set.$probability
         cp server.pickle ./output/pickles/set_$set/server.pickle.$set.$probability
         if $process; then
-            time=$(python plot.py | grep "*** Average completion time")
+            time=$(python plot.py | grep -F "***")
             if [[ ${PIPESTATUS[0]} -eq 0 ]]; then
                 cp histogram.png ./output/histograms/histogram.$set.$probability.png
-                echo -e "Set $set | Probability $probability: "$time >> ./output/output.txt
+                echo -e "Set $set | Probability $probability" >> ./output/output.txt
+                echo "$time" >> ./output/output.txt
+                echo "---" >> ./output/output.txt
             fi
         fi
     done

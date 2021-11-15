@@ -38,12 +38,12 @@ do
             echo -e "Server pickle (Set: $set | Probability: $probability%) not found. Skipping..."
             continue
         fi
-        time=$(python plot.py | grep "*** Average completion time")
+        time=$(python plot.py | grep -F "***")
         if [[ ${PIPESTATUS[0]} -eq 0 ]]; then
             cp histogram.png ./output/histograms/histogram.$set.$probability.png
-            echo -e "Set $set | Probability $probability: "$time >> ./output/output.txt
-        else
-            echo -e "Processing (Set: $set | Probability: $probability%) failed. Skipping..."
+            echo -e "Set $set | Probability $probability" >> ./output/output.txt
+            echo "$time" >> ./output/output.txt
+            echo "---" >> ./output/output.txt
         fi
     done
 done
