@@ -12,11 +12,311 @@
 #include <regex>
 #include <stdexcept>
 #include <string>
+#include <queue>
+#include <functional>
+#include <cmath>
+#include <memory>
+#include <unordered_map>
 #include <vector>
+
+#include "logger/logger.hpp"
+
+#define KNOWN_SIZE 1
+#define UNKNOWN_SIZE 0
+
+double scheduling_count = 0;
+double total_scheduling_time = 0;
+
+Logger logger = Logger("./load_balancer.log");
+
+class Request : public std::enable_shared_from_this<Request> {
+    public:
+        Request(std::string, int);
+        std::string get_name();
+        std::shared_ptr<Request> start();
+        std::shared_ptr<Request> complete();
+        int get_size();
+        double get_arrival_time();
+        double get_service_time();
+    private:
+        std::string name;
+        int size;
+        std::chrono::system_clock::time_point arrival_time;
+        std::chrono::system_clock::time_point start_time;
+        std::chrono::system_clock::time_point completion_time;
+};
+
+Request::Request(std::string request_name, int request_size) {
+    this->arrival_time = std::chrono::system_clock::now();
+    this->name = request_name;
+    this->size = request_size;
+}
+
+using RequestPtr = std::shared_ptr<Request>;
+
+std::string Request::get_name() {
+    return this->name;
+}
+
+std::shared_ptr<Request> Request::start() {
+    this->start_time = std::chrono::system_clock::now();
+    return shared_from_this();
+}
+
+std::shared_ptr<Request> Request::complete() {
+    this->completion_time = std::chrono::system_clock::now();
+    return shared_from_this();
+}
+
+int Request::get_size() {
+    return this->size;
+}
+
+double Request::get_arrival_time() {
+    if (this->arrival_time == std::chrono::system_clock::time_point()) {
+        return -1;
+    }
+    return std::chrono::duration_cast<std::chrono::microseconds>(this->arrival_time.time_since_epoch()).count();
+}
+
+double Request::get_service_time() {
+    if (this->completion_time == std::chrono::system_clock::time_point()) {
+        return -1;
+    }
+    if (this->start_time == std::chrono::system_clock::time_point()) {
+        return -1;
+    }
+    double service_time = std::chrono::duration<double, std::nano>(this->completion_time - this->start_time).count();
+    return service_time;
+}
+
+bool operator<(RequestPtr a, RequestPtr b) {
+    if (a->get_size() == b->get_size()) {
+        return a->get_arrival_time() < b->get_arrival_time();
+    }
+    return a->get_size() < b->get_size();
+}
+
+class Average {
+    public:
+        Average();
+        double record(double);
+        double query();
+        bool is_valid();
+    private:
+        int count;
+        double total;
+};
+
+Average::Average() {
+    this->count = 0;
+    this->total = 0;
+}
+
+double Average::record(double value) {
+    this->count++;
+    this->total += value;
+    return this->query();
+}
+
+double Average::query() {
+    if (!this->is_valid()) {
+        return -1;
+    }
+    return this->total / this->count;
+}
+
+bool Average::is_valid() {
+    return this->count == 0;
+}
+
+class ServerStatistic : public std::enable_shared_from_this<ServerStatistic> {
+    public:
+        ServerStatistic(std::string);
+        std::shared_ptr<ServerStatistic> record_request(RequestPtr);
+        std::string get_name();
+        double get_performance_metric();
+        double get_capacity();
+        bool is_calibrated();
+    private:
+        std::string name;
+        Average capacity;
+        Average performance_metric;
+};
+
+using ServerPtr = std::shared_ptr<ServerStatistic>;
+
+ServerStatistic::ServerStatistic(std::string server_name) {
+    this->name = server_name;
+    this->capacity = Average();
+    this->performance_metric = Average();
+}
+
+std::string ServerStatistic::get_name() {
+    return this->name;
+}
+
+std::shared_ptr<ServerStatistic> ServerStatistic::record_request(RequestPtr request) {
+    int request_size = request->get_size();
+    if (request_size > 0) {
+        this->capacity.record(request->get_service_time() / request_size);
+    }
+    this->performance_metric.record(request->get_service_time());
+    return shared_from_this();
+}
+
+bool ServerStatistic::is_calibrated() {
+    return this->capacity.is_valid();
+}
+
+bool operator<(ServerPtr a, ServerPtr b) {
+    double a_capacity = a->get_capacity();
+    double b_capacity = b->get_capacity();
+    if (a_capacity == -1 || b_capacity == -1) {
+        double a_performance_metric = a->get_performance_metric();
+        double b_performance_metric = b->get_performance_metric();
+        return a_performance_metric < b_performance_metric;
+    }
+    return a_capacity < b_capacity;
+}
+
+double ServerStatistic::get_performance_metric() {
+    return this->performance_metric.query();
+}
+
+double ServerStatistic::get_capacity() {
+    return this->capacity.query();
+}
+
+
+// Function declarations
+std::vector<std::string> parseWithDelimiter(std::string, std::string);
+std::vector<std::string> parseServernames(char*, int);
+std::string parser_filename(std::string);
+int parser_jobsize(std::string);
+std::string scheduleJobToServer(ServerPtr, RequestPtr);
+
+class LoadBalancer {
+    public:
+        LoadBalancer(std::vector<std::string>);
+        void handle_completion(std::string);
+        void handle_request(std::string);
+        std::string handle_next();
+    private:
+        int last_sent;
+        std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> calibrated_servers;
+        std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> approximate_servers;
+        std::priority_queue<RequestPtr, std::vector<RequestPtr>, std::greater<RequestPtr>> known_requests;
+        std::priority_queue<RequestPtr, std::vector<RequestPtr>, std::greater<RequestPtr>> unknown_requests;
+        std::unordered_map<std::string, ServerPtr> processing;
+        std::unordered_map<std::string, RequestPtr> requests;
+};
+
+LoadBalancer::LoadBalancer(std::vector<std::string> servernames) {
+    for (auto iter = servernames.begin(); iter != servernames.end(); iter++) {
+        ServerPtr server = std::make_shared<ServerStatistic>(*iter);
+        this->approximate_servers.push(server);
+    }
+    this->last_sent = KNOWN_SIZE;
+}
+
+void LoadBalancer::handle_completion(std::string filename) {
+    ServerPtr server = this->processing[filename];
+    RequestPtr request = this->requests[filename];
+    server->record_request(request->complete());
+    if (server->is_calibrated()) {
+        this->calibrated_servers.push(server);
+    } else {
+        this->approximate_servers.push(server);
+    }
+}
+
+void LoadBalancer::handle_request(std::string request_string) {
+    logger.write_info(request_string, "Received");
+    std::string request_name = parser_filename(request_string);
+    int request_size = parser_jobsize(request_string);
+    RequestPtr request = std::make_shared<Request>(request_name, request_size);
+    this->requests[request_name] = request;
+    if (request->get_size() > 0) {
+        this->known_requests.push(request);
+    } else {
+        this->unknown_requests.push(request);
+    }
+}
+
+std::string LoadBalancer::handle_next() {
+    if (this->calibrated_servers.size() + this->approximate_servers.size() == 0) {
+        return "";
+    }
+    if (this->known_requests.size() + this->unknown_requests.size() == 0) {
+        return "";
+    }
+    ServerPtr server_to_send = nullptr;
+    RequestPtr request_to_send = nullptr;
+    if (this->approximate_servers.size() > 0 && this->known_requests.size() > 0) {
+        server_to_send = this->approximate_servers.top();
+        this->approximate_servers.pop();
+        logger.write_debug("Allocating job to approximated servers.");
+        request_to_send = this->known_requests.top();
+        this->known_requests.pop();
+        this->processing[request_to_send->get_name()] = server_to_send;
+        this->last_sent = KNOWN_SIZE;
+        logger.write_debug("Dispatching job from known queue.");
+        std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
+        return scheduled_request;
+    } 
+    if (this->approximate_servers.size() == 0) {
+        server_to_send = this->calibrated_servers.top();
+        this->calibrated_servers.pop();
+        logger.write_debug("Allocating job to calibrated servers.");
+    } else if (this->calibrated_servers.size() == 0) {
+        server_to_send = this->approximate_servers.top();
+        this->approximate_servers.pop();
+        logger.write_debug("Allocating job to approximated servers.");
+    } else {
+        if (this->calibrated_servers.top()->get_performance_metric() <= this->approximate_servers.top()->get_performance_metric()) {
+            server_to_send = this->calibrated_servers.top();
+            this->calibrated_servers.pop();
+            logger.write_debug("Allocating job to calibrated servers.");
+        } else {
+            server_to_send = this->approximate_servers.top();
+            this->approximate_servers.pop();
+            logger.write_debug("Allocating job to approximated servers.");
+        }
+    }
+    if (this->known_requests.size() == 0) {
+        request_to_send = this->unknown_requests.top();
+        this->unknown_requests.pop();
+        this->last_sent = UNKNOWN_SIZE;
+        logger.write_debug("Dispatching job from unknown queue.");
+    } else if (this->unknown_requests.size() == 0) {
+        request_to_send = this->known_requests.top();
+        this->known_requests.pop();
+        this->last_sent = KNOWN_SIZE;
+        logger.write_debug("Dispatching job from known queue.");
+    } else {
+        if (last_sent == UNKNOWN_SIZE) {
+            request_to_send = this->known_requests.top();
+            this->known_requests.pop();
+            this->last_sent = KNOWN_SIZE;
+            logger.write_debug("Dispatching job from known queue.");
+        } else {
+            request_to_send = this->unknown_requests.top();
+            this->unknown_requests.pop();
+            this->last_sent = UNKNOWN_SIZE;
+            logger.write_debug("Dispatching job from unknown queue.");
+        }
+    }
+    this->processing[request_to_send->get_name()] = server_to_send;
+    std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
+    return scheduled_request;
+}
 
 // KeyboardInterrupt handler
 void signalHandler(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
+    std::cout << "Average scheduling time: " + std::to_string(total_scheduling_time / scheduling_count) << "ms" <<  std::endl;
+    std::cout << "Scheduling count: " + std::to_string(scheduling_count) << std::endl;
     std::exit(signum);
 }
 
@@ -42,31 +342,12 @@ std::vector<std::string> parseWithDelimiter(std::string target, std::string deli
 
 // Parse available severnames
 std::vector<std::string> parseServernames(char* buffer, int len) {
-    printf("Servernames: %s\n", buffer);
     std::string servernames(buffer);
+    logger.write_info("Servernames: " + servernames);
 
     // parse with delimiter ","
     std::vector<std::string> ret = parseWithDelimiter(servernames, ",");
     return ret;
-}
-
-// get the completed file's name, what you want to do?
-void getCompletedFilename(std::string filename) {
-    /****************************************************
-     *                       TODO                       *
-     * You should use the information on the completed  *
-     * job to update some statistics to drive your      *
-     * scheduling policy. For example, check timestamp, *
-     * or track the number of concurrent files for each *
-     * server?                                          *
-     ****************************************************/
-     
-
-    /* In this example. just print message */
-    printf("[JobScheduler] Filename %s is finished.\n", filename.c_str());
-
-    
-    /**************************************************/
 }
 
 std::string parser_filename(std::string request) {
@@ -83,55 +364,34 @@ int parser_jobsize(std::string request) {
 }
 
 // formatting: to assign server to the request
-std::string scheduleJobToServer(std::string servername, std::string request) {
-    return servername + std::string(",") + request + std::string("\n");
+std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
+    std::string schedule = server->get_name() + "," + request->get_name() + "," + std::to_string(request->get_size());
+    logger.write_info(schedule + "," + std::to_string(request->get_arrival_time()), "Schedule");
+    return schedule + std::string("\n");
 }
 
-// main part you need to do
-std::string assignServerToRequest(std::vector<std::string> servernames, std::string request) {
-    /****************************************************
-     *                       TODO                       *
-     * Given the list of servers, which server you want *
-     * to assign this request? You can make decision.   *
-     * You can use a global variables or add more       *
-     * arguments.                                       */
-
-    std::string request_name = parser_filename(request);
-    int request_size = parser_jobsize(request);
-
-    /** 
-     *  Logic of scheduling using jobsize
-     *  if request size is -1, it is unknown.
-     */
-
-    /* Example. always assign to the first server */
-    std::string server_to_send = servernames[0];
-
-    /**************************************************/
-
-    /* Schedule the job */
-    std::string scheduled_request = scheduleJobToServer(server_to_send, request);
-    return scheduled_request;
-}
-
-void parseThenSendRequest(char* buffer, int len, const int& serverSocket, std::vector<std::string> servernames) {
+void parseThenSendRequest(char* buffer, int len, const int& serverSocket, LoadBalancer *load_balancer) {
     // print received requests
-    printf("[JobScheduler] Received string messages:\n%s\n", buffer);
-    printf("[JobScheduler] --------------------\n");
+    auto start = std::chrono::high_resolution_clock::now();
     std::string sendToServers;
 
     // parsing to "filename, jobsize" pairs
     std::vector<std::string> request_pairs = parseWithDelimiter(std::string(buffer), "\n");
+    int event_count = request_pairs.size();
     for (const auto& request : request_pairs) {
         if (request.find("F") != std::string::npos) {
-            // if completed filenames, print them
             std::string completed_filename = std::regex_replace(request, std::regex("F"), "");
-            getCompletedFilename(completed_filename);
+            load_balancer->handle_completion(completed_filename);
         } else {
-            // if requests, add "servername" front of the request pair
-            sendToServers = sendToServers + assignServerToRequest(servernames, request);
+            load_balancer->handle_request(request);
         }
     }
+    for (int i = 0; i < event_count; i++) {
+        sendToServers = sendToServers + load_balancer->handle_next();
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    total_scheduling_time += std::chrono::duration<double, std::milli>(end - start).count();
+    scheduling_count++;
     if (sendToServers.size() > 0) {
         send(serverSocket, sendToServers.c_str(), strlen(sendToServers.c_str()), 0);
     }
@@ -139,7 +399,7 @@ void parseThenSendRequest(char* buffer, int len, const int& serverSocket, std::v
 
 int main(int argc, char const* argv[]) {
     signal(SIGINT, signalHandler);
-
+    logger.set_logging_level(DEBUG);
     if (argc != 2) {
         throw std::invalid_argument("must type port number");
         return -1;
@@ -180,17 +440,17 @@ int main(int argc, char const* argv[]) {
 
     char buffer[4096] = {0};
     int len;
-
+    logger.write_info("Processing server names");
     len = read(serverSocket, buffer, 4096);
     std::vector<std::string> servernames = parseServernames(buffer, len);
-
+    LoadBalancer load_balancer = LoadBalancer(servernames);
     int currSeconds = -1;
     auto now = std::chrono::system_clock::now();
     while (true) {
         try {
             len = read(serverSocket, buffer, 4096);
             if (len > 0) {
-                parseThenSendRequest(buffer, len, serverSocket, servernames);
+                parseThenSendRequest(buffer, len, serverSocket, &load_balancer);
                 memset(buffer, 0, 4096);
             }
             sleep(0.00001);  // sufficient for 50ms granualrity
