@@ -127,7 +127,7 @@ double Average::query() {
 }
 
 bool Average::is_valid() {
-    return this->count == 0;
+    return this->count != 0;
 }
 
 class ServerStatistic : public std::enable_shared_from_this<ServerStatistic> {
