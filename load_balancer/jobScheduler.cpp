@@ -18,6 +18,7 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <deque>
 
 #include "logger/logger.hpp"
 
@@ -91,10 +92,7 @@ double Request::get_service_time() {
 }
 
 bool operator<(RequestPtr a, RequestPtr b) {
-    if (a->get_size() == b->get_size()) {
-        return a->get_arrival_time() < b->get_arrival_time();
-    }
-    return a->get_size() < b->get_size();
+    return a->get_arrival_time() < b->get_arrival_time();
 }
 
 class Average {
@@ -127,7 +125,7 @@ double Average::query() {
 }
 
 bool Average::is_valid() {
-    return this->count == 0;
+    return this->count != 0;
 }
 
 class ServerStatistic : public std::enable_shared_from_this<ServerStatistic> {
@@ -206,10 +204,12 @@ class LoadBalancer {
         int last_sent;
         std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> calibrated_servers;
         std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> approximate_servers;
-        std::priority_queue<RequestPtr, std::vector<RequestPtr>, std::greater<RequestPtr>> known_requests;
-        std::priority_queue<RequestPtr, std::vector<RequestPtr>, std::greater<RequestPtr>> unknown_requests;
+        std::deque<RequestPtr> known_requests;
+        std::deque<RequestPtr> unknown_requests;
         std::unordered_map<std::string, ServerPtr> processing;
         std::unordered_map<std::string, RequestPtr> requests;
+        
+        RequestPtr get_smallest_job();
 };
 
 LoadBalancer::LoadBalancer(std::vector<std::string> servernames) {
@@ -238,10 +238,24 @@ void LoadBalancer::handle_request(std::string request_string) {
     RequestPtr request = std::make_shared<Request>(request_name, request_size);
     this->requests[request_name] = request;
     if (request->get_size() > 0) {
-        this->known_requests.push(request);
+        this->known_requests.push_back(request);
     } else {
-        this->unknown_requests.push(request);
+        this->unknown_requests.push_back(request);
     }
+}
+
+RequestPtr LoadBalancer::get_smallest_job() {
+    std::deque<RequestPtr>::iterator current = this->known_requests.begin();
+    int size = (*current)->get_size();
+    for (std::deque<RequestPtr>::iterator iter = ++this->known_requests.begin(); iter != this->known_requests.end(); ++iter) {
+        if ((*iter)->get_size() < size) {
+            size = (*iter)->get_size();
+            current = iter;
+        }
+    }
+    RequestPtr job = *current;
+    this->known_requests.erase(current);
+    return job;
 }
 
 std::string LoadBalancer::handle_next() {
@@ -257,8 +271,7 @@ std::string LoadBalancer::handle_next() {
         server_to_send = this->approximate_servers.top();
         this->approximate_servers.pop();
         logger.write_debug("Allocating job to approximated servers.");
-        request_to_send = this->known_requests.top();
-        this->known_requests.pop();
+        request_to_send = this->get_smallest_job();
         this->processing[request_to_send->get_name()] = server_to_send;
         this->last_sent = KNOWN_SIZE;
         logger.write_debug("Dispatching job from known queue.");
@@ -285,24 +298,24 @@ std::string LoadBalancer::handle_next() {
         }
     }
     if (this->known_requests.size() == 0) {
-        request_to_send = this->unknown_requests.top();
-        this->unknown_requests.pop();
+        request_to_send = this->unknown_requests.front();
+        this->unknown_requests.pop_front();
         this->last_sent = UNKNOWN_SIZE;
         logger.write_debug("Dispatching job from unknown queue.");
     } else if (this->unknown_requests.size() == 0) {
-        request_to_send = this->known_requests.top();
-        this->known_requests.pop();
+        request_to_send = this->known_requests.front();
+        this->known_requests.pop_front();
         this->last_sent = KNOWN_SIZE;
         logger.write_debug("Dispatching job from known queue.");
     } else {
-        if (last_sent == UNKNOWN_SIZE) {
-            request_to_send = this->known_requests.top();
-            this->known_requests.pop();
+        if (this->known_requests.front() < this->unknown_requests.front()) {
+            request_to_send = this->known_requests.front();
+            this->known_requests.pop_front();
             this->last_sent = KNOWN_SIZE;
             logger.write_debug("Dispatching job from known queue.");
         } else {
-            request_to_send = this->unknown_requests.top();
-            this->unknown_requests.pop();
+            request_to_send = this->unknown_requests.front();
+            this->unknown_requests.pop_front();
             this->last_sent = UNKNOWN_SIZE;
             logger.write_debug("Dispatching job from unknown queue.");
         }
