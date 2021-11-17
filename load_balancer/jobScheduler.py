@@ -8,6 +8,7 @@ servers = dict()
 fileToServer = dict()
 queue = []
 freeServers = []
+initialServers = []
 
 
 avgPacketSize = 30
@@ -19,32 +20,20 @@ class Server:
         self.capacity = -1
         self.waitTime = 0
         self.serveSize = 0
-        self.hasPacket = False
 
     def updateCapacity(self, capacity):
         self.capacity = capacity
 
     def removeJob(self, job_size):
-        if job_size > 0:
-            self.serveSize = self.serveSize - job_size
-            if self.capacity > 0:
-                self.waitTime = self.waitTime - job_size / self.capacity
-        else:
-            self.serveSize = self.serveSize - avgPacketSize
-            if self.capacity > 0:
-                self.waitTime = self.waitTime - avgPacketSize / self.capacity
+        self.serveSize = self.serveSize - job_size
+        if self.capacity > 0:
+            self.waitTime = self.waitTime - job_size / self.capacity
 
     def addJob(self, job_size):
-        if job_size > 0:
-            self.serveSize = self.serveSize + job_size
-            if self.capacity > 0:
-                timeNeeded = job_size / self.capacity
-                self.waitTime = self.waitTime + timeNeeded
-        else:
-            self.serveSize = self.serveSize + avgPacketSize
-            if self.capacity > 0:
-                timeNeeded = avgPacketSize / self.capacity
-                self.waitTime = self.waitTime + timeNeeded
+        self.serveSize = self.serveSize + job_size
+        if self.capacity > 0:
+            timeNeeded = job_size / self.capacity
+            self.waitTime = self.waitTime + timeNeeded
 
     def getWaitTime(self, job_size):
         if self.capacity > 0:
@@ -54,10 +43,11 @@ class Server:
 
 
 class Job:
-    def __init__(self, server, job_size):
+    def __init__(self, server, job_size, unknown_size):
         self.server = server
         self.job_size = job_size
         self.start = datetime.now()
+        self.unknown_size = unknown_size
 
 
 # KeyboardInterrupt handler
@@ -89,7 +79,7 @@ def getCompletedFilename(filename):
 
     job = fileToServer.get(filename)
     server = servers.get(job.server)
-    if job.job_size > 0:
+    if not job.unknown_size:
         if server.capacity == -1:
             end = datetime.now()
             timeTaken = (end - job.start).total_seconds()
@@ -123,27 +113,24 @@ def assignServerToRequest(servernames, request, send_job):
     # arguments.                                       #
 
     request_name = request.split(",")[0]
-    request_size = int(request.split(",")[1])
-
+    request_size = avgPacketSize if (int(request.split(",")[1]) == -1) else int(request.split(",")[1])
+    unknown_size = True if (int(request.split(",")[1]) == -1) else False
     server_to_send = ''
 
     if freeServers:
-        if request_size > 0:
-            min_wait = sys.maxsize
-            for key in freeServers:
-                server = servers.get(key)
-                if server.capacity < 0:
-                    server_to_send = server.name
-                    break
-                elif server.getWaitTime(request_size) < min_wait:
-                    server_to_send = server.name
-                    min_wait = server.getWaitTime(request_size)
-            freeServers.remove(server_to_send)
-        else:
-            server_to_send = freeServers.pop(0)
+        min_wait = sys.maxsize
+        for key in freeServers:
+            server = servers.get(key)
+            if server.capacity < 0:
+                server_to_send = server.name
+                break
+            elif server.getWaitTime(request_size) < min_wait:
+                server_to_send = server.name
+                min_wait = server.getWaitTime(request_size)
+        freeServers.remove(server_to_send)
 
         if send_job:
-            job = Job(server_to_send, request_size)
+            job = Job(server_to_send, request_size, unknown_size)
             servers.get(server_to_send).addJob(request_size)
             fileToServer[request_name] = job
             scheduled_request = scheduleJobToServer(server_to_send, request)
@@ -151,18 +138,14 @@ def assignServerToRequest(servernames, request, send_job):
             serverSocket.send(sendToServers)
             return scheduled_request
     else:
-        for key in servers:
-            server = servers.get(key)
-            if not server.hasPacket:
-                server_to_send = server.name
-                server.hasPacket = True
-                break
+        if initialServers:
+            server_to_send = initialServers.pop(0)
 
     if server_to_send == '':
         queue.append(request)
         return b""
     else:
-        job = Job(server_to_send, request_size)
+        job = Job(server_to_send, request_size, unknown_size)
         servers.get(server_to_send).addJob(request_size)
         fileToServer[request_name] = job
         # Schedule the job
@@ -218,6 +201,7 @@ if __name__ == "__main__":
 
     for i in servernames:
         servers[i] = Server(i)
+        initialServers.append(i)
 
     currSeconds = -1
     now = datetime.now()
