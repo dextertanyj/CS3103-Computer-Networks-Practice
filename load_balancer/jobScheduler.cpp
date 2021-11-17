@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <vector>
 #include <deque>
+#include <algorithm>
 
 #include "logger/logger.hpp"
 
@@ -36,12 +37,14 @@ class Request : public std::enable_shared_from_this<Request> {
         std::string get_name();
         std::shared_ptr<Request> start();
         std::shared_ptr<Request> complete();
+        int get_token();
         int get_size();
         double get_arrival_time();
         double get_service_time();
     private:
         std::string name;
         int size;
+        int token;
         std::chrono::system_clock::time_point arrival_time;
         std::chrono::system_clock::time_point start_time;
         std::chrono::system_clock::time_point completion_time;
@@ -51,6 +54,7 @@ Request::Request(std::string request_name, int request_size) {
     this->arrival_time = std::chrono::system_clock::now();
     this->name = request_name;
     this->size = request_size;
+    this->token = std::rand() % 2;
 }
 
 using RequestPtr = std::shared_ptr<Request>;
@@ -73,6 +77,10 @@ int Request::get_size() {
     return this->size;
 }
 
+int Request::get_token() {
+    return this->token;
+}
+
 double Request::get_arrival_time() {
     if (this->arrival_time == std::chrono::system_clock::time_point()) {
         return -1;
@@ -87,7 +95,7 @@ double Request::get_service_time() {
     if (this->start_time == std::chrono::system_clock::time_point()) {
         return -1;
     }
-    double service_time = std::chrono::duration<double, std::nano>(this->completion_time - this->start_time).count();
+    double service_time = std::chrono::duration_cast<std::chrono::milliseconds>(this->completion_time - this->start_time).count();
     return service_time;
 }
 
@@ -259,6 +267,15 @@ RequestPtr LoadBalancer::get_smallest_job() {
 }
 
 std::string LoadBalancer::handle_next() {
+    auto compare = [](RequestPtr lhs, RequestPtr rhs) {
+        if (std::abs(lhs->get_arrival_time() - rhs->get_arrival_time()) < 5E5) {
+            return lhs->get_arrival_time() < rhs->get_arrival_time();
+        }
+        if (lhs->get_size() == -1 || rhs->get_size() == -1) {
+            return lhs->get_token() == rhs->get_token();
+        }
+        return lhs->get_size() > rhs->get_size();
+    };
     if (this->calibrated_servers.size() + this->approximate_servers.size() == 0) {
         return "";
     }
@@ -277,51 +294,54 @@ std::string LoadBalancer::handle_next() {
         logger.write_debug("Dispatching job from known queue.");
         std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
         return scheduled_request;
-    } 
-    if (this->approximate_servers.size() == 0) {
-        server_to_send = this->calibrated_servers.top();
-        this->calibrated_servers.pop();
-        logger.write_debug("Allocating job to calibrated servers.");
-    } else if (this->calibrated_servers.size() == 0) {
-        server_to_send = this->approximate_servers.top();
-        this->approximate_servers.pop();
-        logger.write_debug("Allocating job to approximated servers.");
-    } else {
-        if (this->calibrated_servers.top()->get_performance_metric() <= this->approximate_servers.top()->get_performance_metric()) {
+    }
+    int request_count = this->unknown_requests.size() + this->known_requests.size();
+    int server_count = this->approximate_servers.size() + this->calibrated_servers.size();
+    int schedule_count = std::min(request_count, server_count);
+    std::string scheduled_request = "";
+    std::priority_queue<RequestPtr, std::vector<RequestPtr>,decltype(compare)> queue{compare};
+    for (int i = 0; i < schedule_count; ++i) {
+        if (this->known_requests.size() == 0) {
+            queue.push(this->unknown_requests.front());
+            this->unknown_requests.pop_front();
+        } else if (this->unknown_requests.size() == 0) {
+            queue.push(this->known_requests.front());
+            this->known_requests.pop_front();
+        } else {
+            if (this->known_requests.front()->get_arrival_time() <= this->unknown_requests.front()->get_arrival_time()) {
+                queue.push(this->known_requests.front());
+                this->known_requests.pop_front();
+            } else {
+                queue.push(this->unknown_requests.front());
+                this->unknown_requests.pop_front();
+            }
+        }
+    }
+    for (int i = 0; i < schedule_count; ++i) {
+        request_to_send = queue.top();
+        queue.pop();
+        if (this->approximate_servers.size() == 0) {
             server_to_send = this->calibrated_servers.top();
             this->calibrated_servers.pop();
             logger.write_debug("Allocating job to calibrated servers.");
-        } else {
+        } else if (this->calibrated_servers.size() == 0) {
             server_to_send = this->approximate_servers.top();
             this->approximate_servers.pop();
             logger.write_debug("Allocating job to approximated servers.");
-        }
-    }
-    if (this->known_requests.size() == 0) {
-        request_to_send = this->unknown_requests.front();
-        this->unknown_requests.pop_front();
-        this->last_sent = UNKNOWN_SIZE;
-        logger.write_debug("Dispatching job from unknown queue.");
-    } else if (this->unknown_requests.size() == 0) {
-        request_to_send = this->known_requests.front();
-        this->known_requests.pop_front();
-        this->last_sent = KNOWN_SIZE;
-        logger.write_debug("Dispatching job from known queue.");
-    } else {
-        if (this->known_requests.front() < this->unknown_requests.front()) {
-            request_to_send = this->known_requests.front();
-            this->known_requests.pop_front();
-            this->last_sent = KNOWN_SIZE;
-            logger.write_debug("Dispatching job from known queue.");
         } else {
-            request_to_send = this->unknown_requests.front();
-            this->unknown_requests.pop_front();
-            this->last_sent = UNKNOWN_SIZE;
-            logger.write_debug("Dispatching job from unknown queue.");
+            if (this->calibrated_servers.top()->get_performance_metric() <= this->approximate_servers.top()->get_performance_metric()) {
+                server_to_send = this->calibrated_servers.top();
+                this->calibrated_servers.pop();
+                logger.write_debug("Allocating job to calibrated servers.");
+            } else {
+                server_to_send = this->approximate_servers.top();
+                this->approximate_servers.pop();
+                logger.write_debug("Allocating job to approximated servers.");
+            }
         }
+        this->processing[request_to_send->get_name()] = server_to_send;
+        scheduled_request = scheduled_request + scheduleJobToServer(server_to_send, request_to_send);
     }
-    this->processing[request_to_send->get_name()] = server_to_send;
-    std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
     return scheduled_request;
 }
 
