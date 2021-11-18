@@ -493,6 +493,7 @@ int parser_jobsize(std::string request) {
 
 // formatting: to assign server to the request
 std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
+    request->start();
     server->start_request();
     std::string schedule = server->get_name() + "," + request->get_name() + "," + std::to_string(request->get_size());
     return schedule + std::string("\n");
