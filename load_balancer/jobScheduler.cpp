@@ -136,7 +136,7 @@ bool Average::is_valid() {
 class ServerStatistic : public std::enable_shared_from_this<ServerStatistic> {
     public:
         ServerStatistic(std::string);
-        void start_request();
+        void process_request(RequestPtr);
         bool record_request(RequestPtr);
         std::string get_name();
         int active_request_count();
@@ -169,7 +169,8 @@ int ServerStatistic::active_request_count() {
     return this->active_requests;
 }
 
-void ServerStatistic::start_request() {
+void ServerStatistic::process_request(RequestPtr request) {
+    request->start();
     this->active_requests++;
 }
 
@@ -493,8 +494,7 @@ int parser_jobsize(std::string request) {
 
 // formatting: to assign server to the request
 std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
-    request->start();
-    server->start_request();
+    server->process_request(request);
     std::string schedule = server->get_name() + "," + request->get_name() + "," + std::to_string(request->get_size());
     return schedule + std::string("\n");
 }
