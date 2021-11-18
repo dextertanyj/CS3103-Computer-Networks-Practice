@@ -25,9 +25,6 @@
 #define KNOWN_SIZE 1
 #define UNKNOWN_SIZE 0
 
-double scheduling_count = 0;
-double total_scheduling_time = 0;
-
 Logger logger = Logger("./load_balancer.log");
 
 class Request : public std::enable_shared_from_this<Request> {
@@ -103,8 +100,8 @@ int Request::get_service_time() {
     return service_time;
 }
 
-bool operator<(RequestPtr a, RequestPtr b) {
-    return a->get_arrival_time() < b->get_arrival_time();
+bool operator<(RequestPtr lhs, RequestPtr rhs) {
+    return lhs->get_arrival_time() < rhs->get_arrival_time();
 }
 
 class Average {
@@ -201,15 +198,15 @@ bool ServerStatistic::is_calibrated() {
     return this->capacity.is_valid();
 }
 
-bool operator<(ServerPtr a, ServerPtr b) {
-    double a_capacity = a->get_capacity();
-    double b_capacity = b->get_capacity();
-    if (a_capacity == -1 || b_capacity == -1) {
-        double a_performance_metric = a->get_performance_metric();
-        double b_performance_metric = b->get_performance_metric();
-        return a_performance_metric < b_performance_metric;
+bool operator<(ServerPtr lhs, ServerPtr rhs) {
+    double lhs_capacity = lhs->get_capacity();
+    double rhs_capacity = rhs->get_capacity();
+    if (lhs_capacity == -1 || rhs_capacity == -1) {
+        double lhs_performance_metric = lhs->get_performance_metric();
+        double rhs_performance_metric = rhs->get_performance_metric();
+        return lhs_performance_metric < rhs_performance_metric;
     }
-    return a_capacity < b_capacity;
+    return lhs_capacity < rhs_capacity;
 }
 
 double ServerStatistic::get_performance_metric() {
@@ -467,8 +464,6 @@ std::string LoadBalancer::handle_timeout() {
 // KeyboardInterrupt handler
 void signalHandler(int signum) {
     std::cout << "Interrupt signal (" << signum << ") received.\n";
-    std::cout << "Average scheduling time: " + std::to_string(total_scheduling_time / scheduling_count) << "ms" <<  std::endl;
-    std::cout << "Scheduling count: " + std::to_string(scheduling_count) << std::endl;
     std::exit(signum);
 }
 
@@ -525,7 +520,6 @@ std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
 
 void parseThenSendRequest(char* buffer, int len, const int& serverSocket, LoadBalancer *load_balancer) {
     // print received requests
-    auto start = std::chrono::high_resolution_clock::now();
     std::string sendToServers;
 
     // parsing to "filename, jobsize" pairs
@@ -542,9 +536,6 @@ void parseThenSendRequest(char* buffer, int len, const int& serverSocket, LoadBa
     for (int i = 0; i < event_count; i++) {
         sendToServers = sendToServers + load_balancer->handle_next();
     }
-    auto end = std::chrono::high_resolution_clock::now();
-    total_scheduling_time += std::chrono::duration<double, std::milli>(end - start).count();
-    scheduling_count++;
     if (sendToServers.size() > 0) {
         send(serverSocket, sendToServers.c_str(), strlen(sendToServers.c_str()), 0);
     }
@@ -559,7 +550,7 @@ void handleTimeout(const int& serverSocket, LoadBalancer *load_balancer) {
 
 int main(int argc, char const* argv[]) {
     signal(SIGINT, signalHandler);
-    logger.set_logging_level(WARN);
+    logger.set_logging_level(DEBUG);
     if (argc != 2) {
         throw std::invalid_argument("must type port number");
         return -1;
