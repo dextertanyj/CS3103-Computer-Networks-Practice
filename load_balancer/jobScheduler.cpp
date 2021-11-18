@@ -37,9 +37,12 @@ class Request : public std::enable_shared_from_this<Request> {
         std::shared_ptr<Request> start();
         std::shared_ptr<Request> complete();
         int get_size();
+        void set_forced();
+        bool check_forced();
         double get_arrival_time();
         double get_service_time();
     private:
+        bool forced;
         std::string name;
         int size;
         std::chrono::system_clock::time_point arrival_time;
@@ -51,6 +54,7 @@ Request::Request(std::string request_name, int request_size) {
     this->arrival_time = std::chrono::system_clock::now();
     this->name = request_name;
     this->size = request_size;
+    this->forced = false;
 }
 
 using RequestPtr = std::shared_ptr<Request>;
@@ -73,6 +77,14 @@ int Request::get_size() {
     return this->size;
 }
 
+void Request::set_forced() {
+    this->forced = true;
+}
+
+bool Request::check_forced() {
+    return this->forced;
+}
+
 double Request::get_arrival_time() {
     if (this->arrival_time == std::chrono::system_clock::time_point()) {
         return -1;
@@ -87,7 +99,7 @@ double Request::get_service_time() {
     if (this->start_time == std::chrono::system_clock::time_point()) {
         return -1;
     }
-    double service_time = std::chrono::duration<double, std::nano>(this->completion_time - this->start_time).count();
+    double service_time = std::chrono::duration_cast<std::chrono::microseconds>(this->completion_time - this->start_time).count();
     return service_time;
 }
 
@@ -131,13 +143,17 @@ bool Average::is_valid() {
 class ServerStatistic : public std::enable_shared_from_this<ServerStatistic> {
     public:
         ServerStatistic(std::string);
-        std::shared_ptr<ServerStatistic> record_request(RequestPtr);
+        void start_request();
+        bool record_request(RequestPtr);
         std::string get_name();
+        int active_request_count();
         double get_performance_metric();
         double get_capacity();
         bool is_calibrated();
     private:
         std::string name;
+        int active_requests;
+        int active_requests_completed;
         Average capacity;
         Average performance_metric;
 };
@@ -146,6 +162,8 @@ using ServerPtr = std::shared_ptr<ServerStatistic>;
 
 ServerStatistic::ServerStatistic(std::string server_name) {
     this->name = server_name;
+    this->active_requests = 0;
+    this->active_requests_completed = 0;
     this->capacity = Average();
     this->performance_metric = Average();
 }
@@ -154,13 +172,29 @@ std::string ServerStatistic::get_name() {
     return this->name;
 }
 
-std::shared_ptr<ServerStatistic> ServerStatistic::record_request(RequestPtr request) {
+int ServerStatistic::active_request_count() {
+    return this->active_requests;
+}
+
+void ServerStatistic::start_request() {
+    this->active_requests++;
+}
+
+bool ServerStatistic::record_request(RequestPtr request) {
     int request_size = request->get_size();
-    if (request_size > 0) {
-        this->capacity.record(request->get_service_time() / request_size);
+    this->active_requests_completed++;
+    if (this->active_requests != this->active_requests_completed) {
+        return false;
     }
-    this->performance_metric.record(request->get_service_time());
-    return shared_from_this();
+    if (this->active_requests == 1) {
+        if (request_size > 0) {
+            this->capacity.record(request->get_service_time() / request_size);
+        }
+        this->performance_metric.record(request->get_service_time());
+    }
+    this->active_requests = 0;
+    this->active_requests_completed = 0;
+    return true;
 }
 
 bool ServerStatistic::is_calibrated() {
@@ -200,8 +234,14 @@ class LoadBalancer {
         void handle_completion(std::string);
         void handle_request(std::string);
         std::string handle_next();
+        std::string handle_timeout();
     private:
-        int last_sent;
+        int multiplier;
+        int active_forced_requests;
+        int active_forced_requests_completed;
+        float average_job_size;
+        std::chrono::system_clock::time_point last_sent;
+        std::vector<ServerPtr> servers;
         std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> calibrated_servers;
         std::priority_queue<ServerPtr, std::vector<ServerPtr>, std::greater<ServerPtr>> approximate_servers;
         std::deque<RequestPtr> known_requests;
@@ -209,21 +249,36 @@ class LoadBalancer {
         std::unordered_map<std::string, ServerPtr> processing;
         std::unordered_map<std::string, RequestPtr> requests;
         
+        void reset_sent();
+        double average_response_time();
         RequestPtr get_smallest_job();
+        ServerPtr get_timeout_handler();
 };
 
 LoadBalancer::LoadBalancer(std::vector<std::string> servernames) {
     for (auto iter = servernames.begin(); iter != servernames.end(); iter++) {
         ServerPtr server = std::make_shared<ServerStatistic>(*iter);
         this->approximate_servers.push(server);
+        this->servers.push_back(server);
     }
-    this->last_sent = KNOWN_SIZE;
+    this->reset_sent();
 }
 
 void LoadBalancer::handle_completion(std::string filename) {
     ServerPtr server = this->processing[filename];
     RequestPtr request = this->requests[filename];
-    server->record_request(request->complete());
+    if (request->check_forced()) {
+        this->active_forced_requests_completed++;
+        if (this->active_forced_requests_completed == this->active_forced_requests) {
+            this->active_forced_requests = 0;
+            this->active_forced_requests_completed = 0;
+            this->reset_sent();
+        }
+    }
+    bool ready = server->record_request(request->complete());
+    if (!ready) {
+        return;
+    }
     if (server->is_calibrated()) {
         this->calibrated_servers.push(server);
     } else {
@@ -244,6 +299,28 @@ void LoadBalancer::handle_request(std::string request_string) {
     }
 }
 
+void LoadBalancer::reset_sent() {
+    this->last_sent = std::chrono::system_clock::now();
+    this->multiplier = 2;
+}
+
+double LoadBalancer::average_response_time() {
+    int server_count = 0;
+    double total_response_time = 0;
+    for (std::vector<ServerPtr>::iterator iter = this->servers.begin(); iter != this->servers.end(); ++iter) {
+        double response_time = (*iter)->get_performance_metric();
+        if (response_time != -1) {
+            server_count++;
+            total_response_time += response_time;
+        }
+    }
+    if (server_count == 0) {
+        return 5E5;
+    } else {
+        return total_response_time / server_count;
+    }
+}
+
 RequestPtr LoadBalancer::get_smallest_job() {
     std::deque<RequestPtr>::iterator current = this->known_requests.begin();
     int size = (*current)->get_size();
@@ -256,6 +333,22 @@ RequestPtr LoadBalancer::get_smallest_job() {
     RequestPtr job = *current;
     this->known_requests.erase(current);
     return job;
+}
+
+ServerPtr LoadBalancer::get_timeout_handler() {
+    std::vector<ServerPtr>::iterator candidate = this->servers.begin();
+    for (std::vector<ServerPtr>::iterator iter = ++this->servers.begin(); iter != this->servers.end(); ++iter) {
+        int candidate_active_request_count = (*candidate)->active_request_count();
+        int check_active_request_count = (*iter)->active_request_count();
+        if (candidate_active_request_count == check_active_request_count) {
+            if ((*iter)->get_performance_metric() - (*candidate)->get_performance_metric() > 1E5) {
+                candidate = iter;
+            }
+        } else if (candidate_active_request_count > check_active_request_count) {
+            candidate = iter;
+        }
+    }
+    return *candidate;
 }
 
 std::string LoadBalancer::handle_next() {
@@ -273,9 +366,9 @@ std::string LoadBalancer::handle_next() {
         logger.write_debug("Allocating job to approximated servers.");
         request_to_send = this->get_smallest_job();
         this->processing[request_to_send->get_name()] = server_to_send;
-        this->last_sent = KNOWN_SIZE;
         logger.write_debug("Dispatching job from known queue.");
         std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
+        this->reset_sent();
         return scheduled_request;
     } 
     if (this->approximate_servers.size() == 0) {
@@ -300,28 +393,73 @@ std::string LoadBalancer::handle_next() {
     if (this->known_requests.size() == 0) {
         request_to_send = this->unknown_requests.front();
         this->unknown_requests.pop_front();
-        this->last_sent = UNKNOWN_SIZE;
         logger.write_debug("Dispatching job from unknown queue.");
     } else if (this->unknown_requests.size() == 0) {
         request_to_send = this->known_requests.front();
         this->known_requests.pop_front();
-        this->last_sent = KNOWN_SIZE;
         logger.write_debug("Dispatching job from known queue.");
     } else {
         if (this->known_requests.front() < this->unknown_requests.front()) {
             request_to_send = this->known_requests.front();
             this->known_requests.pop_front();
-            this->last_sent = KNOWN_SIZE;
             logger.write_debug("Dispatching job from known queue.");
         } else {
             request_to_send = this->unknown_requests.front();
             this->unknown_requests.pop_front();
-            this->last_sent = UNKNOWN_SIZE;
             logger.write_debug("Dispatching job from unknown queue.");
         }
     }
     this->processing[request_to_send->get_name()] = server_to_send;
     std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
+    this->reset_sent();
+    return scheduled_request;
+}
+
+std::string LoadBalancer::handle_timeout() {
+    if (this->unknown_requests.size() + this->known_requests.size() == 0) {
+        return "";
+    }
+    std::chrono::system_clock::time_point current = std::chrono::system_clock::now();
+    double time_since_last_sent = std::chrono::duration_cast<std::chrono::microseconds>(current - this->last_sent).count();
+    if (time_since_last_sent < this->multiplier * this->average_response_time()) {
+        return "";
+    }
+    logger.write_debug("Average response time: " + std::to_string(this->average_response_time()));
+    int queue;
+    if (this->unknown_requests.size() == 0) {
+        queue = KNOWN_SIZE;
+    } else if (this->known_requests.size() == 0) {
+        queue = UNKNOWN_SIZE;
+    } else {
+        if (this->known_requests.front()->get_arrival_time() < this->unknown_requests.front()->get_arrival_time()) {
+            queue = KNOWN_SIZE;
+        } else {
+            queue = UNKNOWN_SIZE;
+        }
+    }
+    RequestPtr request_to_send;
+    if (queue == KNOWN_SIZE) {
+        request_to_send = this->known_requests.front();
+    } else {
+        request_to_send = this->unknown_requests.front();
+    }
+    double current_time = std::chrono::duration_cast<std::chrono::microseconds>(current.time_since_epoch()).count();
+    if (current_time - request_to_send->get_arrival_time() < 2 * this->average_response_time()) {
+        return "";
+    }
+    request_to_send->set_forced();
+    if (queue == KNOWN_SIZE) {
+        this->known_requests.pop_front();
+    } else {
+        this->unknown_requests.pop_front();
+    }
+    ServerPtr server_to_send = this->get_timeout_handler();
+    this->processing[request_to_send->get_name()] = server_to_send;
+    logger.write_warn("Sending timed out request.");
+    std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
+    this->multiplier <<= 1;
+    this->active_forced_requests++;
+    logger.write_debug("Increased multiplier to: " + std::to_string(this->multiplier));
     return scheduled_request;
 }
 
@@ -378,6 +516,7 @@ int parser_jobsize(std::string request) {
 
 // formatting: to assign server to the request
 std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
+    server->start_request();
     std::string schedule = server->get_name() + "," + request->get_name() + "," + std::to_string(request->get_size());
     logger.write_info(schedule + "," + std::to_string(request->get_arrival_time()), "Schedule");
     return schedule + std::string("\n");
@@ -410,9 +549,16 @@ void parseThenSendRequest(char* buffer, int len, const int& serverSocket, LoadBa
     }
 }
 
+void handleTimeout(const int& serverSocket, LoadBalancer *load_balancer) {
+    std::string sendToServers = load_balancer->handle_timeout();
+    if (sendToServers.size() > 0) {
+        send(serverSocket, sendToServers.c_str(), strlen(sendToServers.c_str()), 0);
+    }
+}
+
 int main(int argc, char const* argv[]) {
     signal(SIGINT, signalHandler);
-    logger.set_logging_level(DEBUG);
+    logger.set_logging_level(INFO);
     if (argc != 2) {
         throw std::invalid_argument("must type port number");
         return -1;
@@ -457,7 +603,7 @@ int main(int argc, char const* argv[]) {
     len = read(serverSocket, buffer, 4096);
     std::vector<std::string> servernames = parseServernames(buffer, len);
     LoadBalancer load_balancer = LoadBalancer(servernames);
-    int currSeconds = -1;
+    int milliseconds = 0;
     auto now = std::chrono::system_clock::now();
     while (true) {
         try {
@@ -465,6 +611,10 @@ int main(int argc, char const* argv[]) {
             if (len > 0) {
                 parseThenSendRequest(buffer, len, serverSocket, &load_balancer);
                 memset(buffer, 0, 4096);
+            }
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count() > milliseconds) {
+                handleTimeout(serverSocket, &load_balancer);
+                milliseconds += 250;
             }
             sleep(0.00001);  // sufficient for 50ms granualrity
         } catch (const std::exception& e) {
