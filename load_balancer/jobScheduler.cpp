@@ -613,7 +613,7 @@ int main(int argc, char const* argv[]) {
                 parseThenSendRequest(buffer, len, serverSocket, &load_balancer);
                 memset(buffer, 0, 4096);
             }
-            if (cycles == 25000) {
+            if (cycles == 25) {
                 handleTimeout(serverSocket, &load_balancer);
                 cycles = -1;
             }
