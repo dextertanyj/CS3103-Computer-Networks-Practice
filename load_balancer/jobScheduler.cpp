@@ -20,12 +20,8 @@
 #include <vector>
 #include <deque>
 
-#include "logger/logger.hpp"
-
 #define KNOWN_SIZE 1
 #define UNKNOWN_SIZE 0
-
-Logger logger = Logger("./load_balancer.log");
 
 class Request : public std::enable_shared_from_this<Request> {
     public:
@@ -285,7 +281,6 @@ void LoadBalancer::handle_completion(std::string filename) {
 }
 
 void LoadBalancer::handle_request(std::string request_string) {
-    logger.write_info(request_string, "Received");
     std::string request_name = parser_filename(request_string);
     int request_size = parser_jobsize(request_string);
     RequestPtr request = std::make_shared<Request>(request_name, request_size);
@@ -361,10 +356,8 @@ std::string LoadBalancer::handle_next() {
     if (this->approximate_servers.size() > 0 && this->known_requests.size() > 0) {
         server_to_send = this->approximate_servers.top();
         this->approximate_servers.pop();
-        logger.write_debug("Allocating job to approximated servers.");
         request_to_send = this->get_smallest_job();
         this->processing[request_to_send->get_name()] = server_to_send;
-        logger.write_debug("Dispatching job from known queue.");
         std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
         this->reset_sent();
         return scheduled_request;
@@ -372,39 +365,31 @@ std::string LoadBalancer::handle_next() {
     if (this->approximate_servers.size() == 0) {
         server_to_send = this->calibrated_servers.top();
         this->calibrated_servers.pop();
-        logger.write_debug("Allocating job to calibrated servers.");
     } else if (this->calibrated_servers.size() == 0) {
         server_to_send = this->approximate_servers.top();
         this->approximate_servers.pop();
-        logger.write_debug("Allocating job to approximated servers.");
     } else {
         if (this->calibrated_servers.top()->get_performance_metric() <= this->approximate_servers.top()->get_performance_metric()) {
             server_to_send = this->calibrated_servers.top();
             this->calibrated_servers.pop();
-            logger.write_debug("Allocating job to calibrated servers.");
         } else {
             server_to_send = this->approximate_servers.top();
             this->approximate_servers.pop();
-            logger.write_debug("Allocating job to approximated servers.");
         }
     }
     if (this->known_requests.size() == 0) {
         request_to_send = this->unknown_requests.front();
         this->unknown_requests.pop_front();
-        logger.write_debug("Dispatching job from unknown queue.");
     } else if (this->unknown_requests.size() == 0) {
         request_to_send = this->known_requests.front();
         this->known_requests.pop_front();
-        logger.write_debug("Dispatching job from known queue.");
     } else {
         if (this->known_requests.front() < this->unknown_requests.front()) {
             request_to_send = this->known_requests.front();
             this->known_requests.pop_front();
-            logger.write_debug("Dispatching job from known queue.");
         } else {
             request_to_send = this->unknown_requests.front();
             this->unknown_requests.pop_front();
-            logger.write_debug("Dispatching job from unknown queue.");
         }
     }
     this->processing[request_to_send->get_name()] = server_to_send;
@@ -422,7 +407,6 @@ std::string LoadBalancer::handle_timeout() {
     if (time_since_last_sent < this->multiplier * this->average_response_time()) {
         return "";
     }
-    logger.write_info("Average response time: " + std::to_string(this->average_response_time()));
     int queue;
     if (this->unknown_requests.size() == 0) {
         queue = KNOWN_SIZE;
@@ -453,11 +437,9 @@ std::string LoadBalancer::handle_timeout() {
     }
     ServerPtr server_to_send = this->get_timeout_handler();
     this->processing[request_to_send->get_name()] = server_to_send;
-    logger.write_warn("Sending timed out request.");
     std::string scheduled_request = scheduleJobToServer(server_to_send, request_to_send);
     this->multiplier <<= 1;
     this->active_forced_requests++;
-    logger.write_debug("Increased multiplier to: " + std::to_string(this->multiplier));
     return scheduled_request;
 }
 
@@ -490,7 +472,6 @@ std::vector<std::string> parseWithDelimiter(std::string target, std::string deli
 // Parse available severnames
 std::vector<std::string> parseServernames(char* buffer, int len) {
     std::string servernames(buffer);
-    logger.write_info("Servernames: " + servernames);
 
     // parse with delimiter ","
     std::vector<std::string> ret = parseWithDelimiter(servernames, ",");
@@ -514,7 +495,6 @@ int parser_jobsize(std::string request) {
 std::string scheduleJobToServer(ServerPtr server, RequestPtr request) {
     server->start_request();
     std::string schedule = server->get_name() + "," + request->get_name() + "," + std::to_string(request->get_size());
-    logger.write_info(schedule + "," + std::to_string(request->get_arrival_time()), "Schedule");
     return schedule + std::string("\n");
 }
 
@@ -550,7 +530,6 @@ void handleTimeout(const int& serverSocket, LoadBalancer *load_balancer) {
 
 int main(int argc, char const* argv[]) {
     signal(SIGINT, signalHandler);
-    logger.set_logging_level(DEBUG);
     if (argc != 2) {
         throw std::invalid_argument("must type port number");
         return -1;
@@ -591,7 +570,6 @@ int main(int argc, char const* argv[]) {
 
     char buffer[4096] = {0};
     int len;
-    logger.write_info("Processing server names");
     len = read(serverSocket, buffer, 4096);
     std::vector<std::string> servernames = parseServernames(buffer, len);
     LoadBalancer load_balancer = LoadBalancer(servernames);
