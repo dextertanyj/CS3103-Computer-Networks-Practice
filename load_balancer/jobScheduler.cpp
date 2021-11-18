@@ -8,21 +8,18 @@
 #include <bitset>
 #include <chrono>
 #include <csignal>
+#include <deque>
 #include <iostream>
+#include <memory>
+#include <queue>
 #include <regex>
 #include <stdexcept>
 #include <string>
-#include <queue>
-#include <functional>
-#include <cmath>
-#include <memory>
 #include <unordered_map>
 #include <vector>
-#include <deque>
 
 #define IDENTIFIED_REQUEST 1
 #define UNIDENTIFIED_REQUEST 0
-
 #define DEFAULT_MULTIPLIER 2
 #define HALF_SECOND 500
 
