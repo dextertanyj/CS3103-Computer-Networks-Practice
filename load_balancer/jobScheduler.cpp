@@ -39,8 +39,8 @@ class Request : public std::enable_shared_from_this<Request> {
         int get_size();
         void set_forced();
         bool check_forced();
-        double get_arrival_time();
-        double get_service_time();
+        int get_arrival_time();
+        int get_service_time();
     private:
         bool forced;
         std::string name;
@@ -85,21 +85,21 @@ bool Request::check_forced() {
     return this->forced;
 }
 
-double Request::get_arrival_time() {
+int Request::get_arrival_time() {
     if (this->arrival_time == std::chrono::system_clock::time_point()) {
         return -1;
     }
-    return std::chrono::duration_cast<std::chrono::microseconds>(this->arrival_time.time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(this->arrival_time.time_since_epoch()).count();
 }
 
-double Request::get_service_time() {
+int Request::get_service_time() {
     if (this->completion_time == std::chrono::system_clock::time_point()) {
         return -1;
     }
     if (this->start_time == std::chrono::system_clock::time_point()) {
         return -1;
     }
-    double service_time = std::chrono::duration_cast<std::chrono::microseconds>(this->completion_time - this->start_time).count();
+    double service_time = std::chrono::duration_cast<std::chrono::milliseconds>(this->completion_time - this->start_time).count();
     return service_time;
 }
 
@@ -183,6 +183,7 @@ void ServerStatistic::start_request() {
 bool ServerStatistic::record_request(RequestPtr request) {
     int request_size = request->get_size();
     this->active_requests_completed++;
+    this->performance_metric.record(request->get_service_time());
     if (this->active_requests != this->active_requests_completed) {
         return false;
     }
@@ -190,7 +191,6 @@ bool ServerStatistic::record_request(RequestPtr request) {
         if (request_size > 0) {
             this->capacity.record(request->get_service_time() / request_size);
         }
-        this->performance_metric.record(request->get_service_time());
     }
     this->active_requests = 0;
     this->active_requests_completed = 0;
@@ -267,6 +267,7 @@ LoadBalancer::LoadBalancer(std::vector<std::string> servernames) {
 void LoadBalancer::handle_completion(std::string filename) {
     ServerPtr server = this->processing[filename];
     RequestPtr request = this->requests[filename];
+    request->complete();
     if (request->check_forced()) {
         this->active_forced_requests_completed++;
         if (this->active_forced_requests_completed == this->active_forced_requests) {
@@ -275,7 +276,7 @@ void LoadBalancer::handle_completion(std::string filename) {
             this->reset_sent();
         }
     }
-    bool ready = server->record_request(request->complete());
+    bool ready = server->record_request(request);
     if (!ready) {
         return;
     }
@@ -315,7 +316,7 @@ double LoadBalancer::average_response_time() {
         }
     }
     if (server_count == 0) {
-        return 5E5;
+        return 500;
     } else {
         return total_response_time / server_count;
     }
@@ -341,7 +342,7 @@ ServerPtr LoadBalancer::get_timeout_handler() {
         int candidate_active_request_count = (*candidate)->active_request_count();
         int check_active_request_count = (*iter)->active_request_count();
         if (candidate_active_request_count == check_active_request_count) {
-            if ((*iter)->get_performance_metric() - (*candidate)->get_performance_metric() > 1E5) {
+            if ((*iter)->get_performance_metric() - (*candidate)->get_performance_metric() > 100) {
                 candidate = iter;
             }
         } else if (candidate_active_request_count > check_active_request_count) {
@@ -420,11 +421,11 @@ std::string LoadBalancer::handle_timeout() {
         return "";
     }
     std::chrono::system_clock::time_point current = std::chrono::system_clock::now();
-    double time_since_last_sent = std::chrono::duration_cast<std::chrono::microseconds>(current - this->last_sent).count();
+    int time_since_last_sent = std::chrono::duration_cast<std::chrono::milliseconds>(current - this->last_sent).count();
     if (time_since_last_sent < this->multiplier * this->average_response_time()) {
         return "";
     }
-    logger.write_debug("Average response time: " + std::to_string(this->average_response_time()));
+    logger.write_info("Average response time: " + std::to_string(this->average_response_time()));
     int queue;
     if (this->unknown_requests.size() == 0) {
         queue = KNOWN_SIZE;
@@ -443,7 +444,7 @@ std::string LoadBalancer::handle_timeout() {
     } else {
         request_to_send = this->unknown_requests.front();
     }
-    double current_time = std::chrono::duration_cast<std::chrono::microseconds>(current.time_since_epoch()).count();
+    double current_time = std::chrono::duration_cast<std::chrono::milliseconds>(current.time_since_epoch()).count();
     if (current_time - request_to_send->get_arrival_time() < 2 * this->average_response_time()) {
         return "";
     }
@@ -558,7 +559,7 @@ void handleTimeout(const int& serverSocket, LoadBalancer *load_balancer) {
 
 int main(int argc, char const* argv[]) {
     signal(SIGINT, signalHandler);
-    logger.set_logging_level(INFO);
+    logger.set_logging_level(WARN);
     if (argc != 2) {
         throw std::invalid_argument("must type port number");
         return -1;
@@ -603,7 +604,7 @@ int main(int argc, char const* argv[]) {
     len = read(serverSocket, buffer, 4096);
     std::vector<std::string> servernames = parseServernames(buffer, len);
     LoadBalancer load_balancer = LoadBalancer(servernames);
-    int milliseconds = 0;
+    int cycles = 0;
     auto now = std::chrono::system_clock::now();
     while (true) {
         try {
@@ -612,10 +613,11 @@ int main(int argc, char const* argv[]) {
                 parseThenSendRequest(buffer, len, serverSocket, &load_balancer);
                 memset(buffer, 0, 4096);
             }
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - now).count() > milliseconds) {
+            if (cycles == 25000) {
                 handleTimeout(serverSocket, &load_balancer);
-                milliseconds += 250;
+                cycles = -1;
             }
+            ++cycles;
             sleep(0.00001);  // sufficient for 50ms granualrity
         } catch (const std::exception& e) {
             std::cerr << e.what() << '\n';
