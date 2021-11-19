@@ -582,7 +582,7 @@ int main(int argc, char const* argv[]) {
                 parse_and_send_request(buffer, len, serverSocket, &load_balancer);
                 memset(buffer, 0, 4096);
             }
-            if (cycles == 25) {
+            if (cycles == 10) {
                 handle_timeout(serverSocket, &load_balancer);
                 cycles = -1;
             }
