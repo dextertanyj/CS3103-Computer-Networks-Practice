@@ -432,7 +432,11 @@ ServerPtr LoadBalancer::get_timeout_handler() {
         int check_active_request_count = (*iter)->active_request_count();
         double candidate_response_time = (*candidate)->get_response_time();
         double check_response_time = (*iter)->get_response_time();
-        if (candidate_active_request_count * candidate_response_time > check_active_request_count * check_response_time) {
+        if (candidate_response_time == -1 || check_response_time == -1) {
+            if (check_active_request_count < candidate_active_request_count) {
+                candidate = iter;
+            }
+        } else if (candidate_active_request_count * candidate_response_time > check_active_request_count * check_response_time) {
             candidate = iter;
         }
     }
