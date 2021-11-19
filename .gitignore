@@ -1,6 +1,8 @@
 *.log
 *.o
 output.tar.gz
+jobScheduler
+LoadBalancer
 proxy
 blacklist
 .vscode
