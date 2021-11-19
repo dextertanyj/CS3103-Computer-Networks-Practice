@@ -1,6 +1,8 @@
 #! /bin/bash
 
 function cleanup() {
+    mv config_client_0 config_client &>/dev/null
+    mv config_server_0 config_server &>/dev/null
     rm histogram.png &>/dev/null
     rm client.pickle &>/dev/null
     rm server.pickle &>/dev/null
@@ -22,11 +24,15 @@ if ! [[ -f $archive ]]; then
 fi
 
 tar -zxf $archive
+mv config_client config_client_0
+mv config_server config_server_0
 
 trap cleanup EXIT
 
 for set in 0 1 2 3 4 5 6
 do
+    cp config_client_$set config_client
+    cp config_server_$set config_server
     for multiplier in 2 1 0
     do
         probability=$((multiplier*50))
