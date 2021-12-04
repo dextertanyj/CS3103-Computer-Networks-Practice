@@ -77,7 +77,7 @@ Connection::~Connection() {
   if (this->has_telemetry()) {
     int duration = std::chrono::duration_cast<std::chrono::milliseconds>(this->end_time - this->start_time).count();
     std::string telemetry = "Hostname: " + this->hostname + ", Size: " +
-    std::to_string(this->total_size/8) + " bytes, Time: " + std::to_string(duration/(1000.0)) + " sec";
+    std::to_string(this->total_size) + " bytes, Time: " + std::to_string(duration/(1000.0)) + " sec";
     ctx.logger.write_info(telemetry);
     if (ctx.telemetry) {
       printf("%s\n", telemetry.c_str());
